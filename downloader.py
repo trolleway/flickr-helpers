@@ -2,14 +2,11 @@ import argparse
 import os
 import flickrapi
 import requests
-
-# Flickr API keys (replace with your own)
-API_KEY = "your_api_key"
-API_SECRET = "your_api_secret"
+import config
 
 def authenticate_flickr():
     """Authenticate and return the Flickr API client in a Termux-friendly way."""
-    flickr = flickrapi.FlickrAPI(API_KEY, API_SECRET, format='parsed-json')
+    flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
     
     if not flickr.token_cache.token:
         flickr.get_request_token(oauth_callback='oob')
@@ -44,14 +41,14 @@ def download_photo(url, filepath, overwrite):
     else:
         print(f"Failed to download {url}")
 
-def fetch_photos(flickr, category, taken_date, user_id):
+def fetch_photos(flickr, tags, taken_date, user_id):
     """Fetch photos based on query parameters."""
-    photos = flickr.photos.search(user_id=user_id, tags=category, min_taken_date=taken_date, extras='url_o')
+    photos = flickr.photos.search(user_id=user_id, tags=tags, min_taken_date=taken_date, extras='url_o')
     return photos['photos']['photo']
 
 def main():
     parser = argparse.ArgumentParser(description="Download photos from Flickr by query.")
-    parser.add_argument("category", help="Flickr category to search for.")
+    parser.add_argument("tags", help="Flickr tags.")
     parser.add_argument("taken_date", help="Taken date in YYYY-MM-DD format.")
     parser.add_argument("destination", help="Destination folder for downloaded images.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing images.")
@@ -61,7 +58,7 @@ def main():
     ensure_destination_folder(args.destination)
 
     user_id = flickr.test.login()['user']['id']  # Default to the authenticated user
-    photos = fetch_photos(flickr, args.category, args.taken_date, user_id)
+    photos = fetch_photos(flickr, args.tags, args.taken_date, user_id)
 
     for photo in photos:
         if 'url_o' in photo:
