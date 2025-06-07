@@ -21,6 +21,7 @@ def authenticate_flickr():
 def ensure_destination_folder(folder):
     """Ensure the destination folder exists."""
     if not os.path.exists(folder):
+        print(f'creating {folder}')
         os.makedirs(folder)
 
 def download_photo(url, filepath, overwrite):
@@ -41,13 +42,19 @@ def download_photo(url, filepath, overwrite):
     else:
         print(f"Failed to download {url}")
 
-def fetch_photos(flickr, tags, taken_date, user_id):
+def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
     """Fetch photos based on query parameters."""
-    photos = flickr.photos.search(user_id=user_id, tags=tags, min_taken_date=taken_date, extras='url_o')
+    print(taken_date, max_taken_date)
+    page=1
+    assert page>0
+    photos = flickr.photos.search(user_id=user_id, tags=tags,
+ min_taken_date=taken_date, 
+max_taken_date=max_taken_date,
+extras='url_o,date_taken')
     return photos['photos']['photo']
 
 def main():
-    parser = argparse.ArgumentParser(description="Download photos from Flickr by query.")
+    parser = argparse.ArgumentParser(description="Download photos from Flickr by tag taken at one day")
     parser.add_argument("tags", help="Flickr tags.")
     parser.add_argument("taken_date", help="Taken date in YYYY-MM-DD format.")
     parser.add_argument("destination", help="Destination folder for downloaded images.")
@@ -57,12 +64,21 @@ def main():
     flickr = authenticate_flickr()
     ensure_destination_folder(args.destination)
 
-    user_id = flickr.test.login()['user']['id']  # Default to the authenticated user
-    photos = fetch_photos(flickr, args.tags, args.taken_date, user_id)
+    assert '-' in args.taken_date
 
+    user_id = flickr.test.login()['user']['id']  # Default to the authenticated user
+    from datetime import datetime, timedelta
+    taken_date = args.taken_date
+    max_taken_date = (datetime.strptime(taken_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    photos = fetch_photos(flickr, args.tags, taken_date, user_id, max_taken_date)
+    if len(photos)>0:
+         print(f'total is {len(photos)}')
+    print(photos)
     for photo in photos:
         if 'url_o' in photo:
-            filepath = os.path.join(args.destination, f"{photo['id']}.jpg")
+            tds=photo['datetaken'].replace(':','')
+            filepath = os.path.join(args.destination, f"{tds} {photo['id']}.jpg")
             download_photo(photo['url_o'], filepath, args.overwrite)
 
 if __name__ == "__main__":
