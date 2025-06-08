@@ -48,6 +48,7 @@ def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
     page=1
     assert page>0
     photos = flickr.photos.search(user_id=user_id, tags=tags,
+tag_mode='all',
  min_taken_date=taken_date, 
 max_taken_date=max_taken_date,
 extras='url_o,date_taken')
