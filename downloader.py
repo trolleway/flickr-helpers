@@ -38,7 +38,7 @@ def download_photo(url, filepath, overwrite):
         with open(filepath, 'wb') as file:
             for chunk in response.iter_content(1024):
                 file.write(chunk)
-        print(f"Downloaded {filepath}")
+       
     else:
         print(f"Failed to download {url}")
 
@@ -51,7 +51,7 @@ def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
 tag_mode='all',
  min_taken_date=taken_date, 
 max_taken_date=max_taken_date,
-extras='url_o,date_taken')
+extras='url_o,date_taken,tags')
     return photos['photos']['photo']
 
 def main():
@@ -75,11 +75,19 @@ def main():
     photos = fetch_photos(flickr, args.tags, taken_date, user_id, max_taken_date)
     if len(photos)>0:
          print(f'total is {len(photos)}')
-    print(photos)
+    #print(photos)
+    total=len(photos)
+    i=0
     for photo in photos:
+        i=i+1
         if 'url_o' in photo:
             tds=photo['datetaken'].replace(':','')
-            filepath = os.path.join(args.destination, f"{tds} {photo['id']}.jpg")
+            filepath = os.path.join(args.destination, f"{tds}-{photo['id']}.jpg")
+            print(f'{i} / {total}')
+            if 'posted' in photo['tags']:
+                print('tagged as posted, skip '+photo['url_o']+ 'try to remove if already downloaded')
+                if os.path.isfile(filepath): os.remove(filepath)
+                continue
             download_photo(photo['url_o'], filepath, args.overwrite)
 
 if __name__ == "__main__":
