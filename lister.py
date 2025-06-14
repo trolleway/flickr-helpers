@@ -78,7 +78,9 @@ elif args.output == 'html':
     <style>
 {css}
     </style>
-</head><body><table>{rows}</table></body></html>'''
+</head><body><table>{rows}</table><h2>organizr</h2>
+{links}
+</body></html>'''
     css='''        body {
             background-color: #1a1a1a;
             color: #ffffff;
@@ -127,7 +129,10 @@ table {
     
     rows=''
     no_geo_pics_ids=list()
-    for pic in photos['photos']['photo']:
+    
+    photosbydate = sorted(photos['photos']['photo'], key=lambda x: x["datetaken"], reverse=True)
+    
+    for pic in photosbydate:
         geo_text=''
         if pic['latitude']==0: 
             geo_text='🌍❌'
@@ -136,5 +141,9 @@ table {
         
         rows = rows + row
     
-    html_template = html_template.format(css=css,rows=rows)
+    ids_all=list()
+    for pic in photosbydate:
+        ids_all.append(pic['id'])
+    links = '''<a href="https://www.flickr.com/photos/organize/?ids='''+','.join(ids_all)+'''">all pics from page</a>'''
+    html_template = html_template.format(css=css,rows=rows, links=links)
     print(html_template)
