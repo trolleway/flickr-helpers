@@ -1,0 +1,251 @@
+import sys
+import flickrapi
+import config
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout
+    
+)
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
+from urllib.request import urlopen
+from datetime import datetime, timedelta
+import webbrowser
+
+class Model():
+
+
+    def transport_image_flickr_update(self,flickr, photo_id, textsdict):
+
+        # https://flickr.com/photos/trolleway/51052666337
+
+        # Step 1: Get current photo info
+        info = flickr.photos.getInfo(photo_id=photo_id)
+        visibility = info['photo']['visibility']
+
+        # Step 2: Check and update privacy if needed
+        if visibility.get('ispublic') == 0:
+            flickr.photos.setPerms(
+                photo_id=photo_id,
+                is_public=1,
+                is_friend=0,
+                is_family=0,
+                perm_comment=3,  # Anyone can comment
+                perm_addmeta=2   # Contacts can add tags/notes
+            )
+            print("Privacy changed to public.")
+
+        # Step 3: Update photo metadata
+
+        city=textsdict['city'].capitalize()
+        transport=textsdict['transport'].lower()
+        number=str(textsdict['number'])
+        datestr=info['photo']['dates']['taken'][0:10]
+        street=textsdict['street']
+        model=textsdict.get('model')
+        route=str(textsdict.get('route'))
+        newname = f'{city} {transport} {number} {datestr} {street} {model}'.replace('  ',' ')
+
+        new_tags=f'{city} {transport}'
+        if route is not None and len(route)>0:
+            new_tags += ' line'+str(route)
+        if model is not None and len(model)>0:
+            new_tags += ' '+str(model)
+        operator = textsdict.get('operator','')
+        operator = str(operator)
+        operator=operator.strip()
+        if operator != '':
+            new_tags += ' '+str(operator)
+
+        flickr.photos.setMeta(
+            photo_id=photo_id,
+            title=newname,
+            description=info['photo']['description']['_content']
+        )
+
+        # Step 4: Update tags
+        flickr.photos.setTags(
+            photo_id=photo_id,
+            tags=new_tags
+        )
+
+class FlickrBrowser(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Flickr Image Browser")
+        self.model = Model()
+
+        self.selected_photo_id = None
+        
+
+
+        self.init_ui()
+        self.flickr = self.authenticate_flickr()
+
+    def authenticate_flickr(self):
+        flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
+        if not flickr.token_cache.token:
+            flickr.get_request_token(oauth_callback='oob')
+            auth_url = flickr.auth_url(perms='write')
+            
+
+            # inside authenticate_flickr() method
+            webbrowser.open(auth_url)
+            #QMessageBox.information(self, "Authorization", "Your browser has been opened to authorize this app.")
+
+            verifier, ok = QInputDialog.getText(self, "Enter Verifier", "Paste the verifier code from the browser:")
+            if not ok or not verifier:
+                QMessageBox.warning(self, "Authorization Failed", "No verifier entered. Cannot proceed.")
+                return
+            flickr.get_access_token(verifier)
+        return flickr
+    
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # Input fields
+        self.inputs = {}
+        fields = ["user_id", "tags", "tag_mode", "min_taken_date", "max_taken_date"]
+        for field in fields:
+            row = QHBoxLayout()
+            label = QLabel(field)
+            edit = QLineEdit()
+            self.inputs[field] = edit
+            row.addWidget(label)
+            row.addWidget(edit)
+            layout.addLayout(row)
+
+        self.inputs["tag_mode"].setPlaceholderText("all or any")
+
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(self.search_photos)
+        layout.addWidget(self.search_btn)
+
+        # Image scroll area
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_widget = QWidget()
+        self.scroll_layout = QVBoxLayout()
+        self.scroll_widget.setLayout(self.scroll_layout)
+        self.scroll_area.setWidget(self.scroll_widget)
+        layout.addWidget(self.scroll_area)
+        
+        self.formtab=QTabWidget()
+        layout.addWidget(self.formtab)
+        
+        # Create tabs
+        self.formtab.addTab(QWidget(), "tram")  # Empty tab
+        self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
+        self.formtab.addTab(QWidget(), "bus")   # Empty tab
+        self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
+        
+        self.setLayout(layout)
+
+    def create_trolleybus_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        # Add text fields
+        self.fields = {}
+        for label in ["transport","street", "model", "number", "route", "city", "operator"]:
+            line_edit = QLineEdit()
+            if label=='transport':
+                line_edit.setText('trolleybus')
+            self.fields[label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+
+        # Add "write" button
+        write_btn = QPushButton("Write")
+        write_btn.clicked.connect(self.on_write)
+        form_layout.addRow(write_btn)
+
+        tab.setLayout(form_layout)
+        return tab
+
+    def on_write(self):
+        textsdict = {field: widget.text() for field, widget in self.fields.items()}
+        flickrid=''
+        if self.selected_photo_id is not None:
+            flickrid=self.selected_photo_id
+        if flickrid == '':
+            QMessageBox.warning(self, "Invalid data", "Select photo frist")
+            return
+        print("Trolleybus data:", textsdict, 'on photo=',flickrid)
+        
+        self.model.transport_image_flickr_update(self.flickr, flickrid, textsdict)
+
+
+
+    def search_photos(self):
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+
+        params = {"extras": "url_s,url_o,date_taken,tags,geo"}
+        for key, widget in self.inputs.items():
+            val = widget.text().strip()
+            if val:
+                params[key] = val
+
+        # Add logic for "interval" (if max not given)
+        if "min_taken_date" in params and "max_taken_date" not in params:
+            try:
+                date = datetime.strptime(params["min_taken_date"], "%Y-%m-%d")
+                params["max_taken_date"] = (date + timedelta(days=1)).strftime("%Y-%m-%d")
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Date", "Use YYYY-MM-DD format")
+                return
+
+        if "user_id" not in params:
+            params["user_id"] = self.flickr.test.login()['user']['id']
+
+        photos = self.flickr.photos.search(**params)
+
+        #for photo in photos["photos"]["photo"]:
+        for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
+            self.add_photo_widget(photo)
+
+    def add_photo_widget(self, photo):
+        frame = QFrame()
+        frame.setFrameShape(QFrame.Shape.StyledPanel)
+        vbox = QVBoxLayout()
+        frame.setLayout(vbox)
+
+        image_url = photo.get("url_s")
+        if image_url:
+            data = urlopen(image_url).read()
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+            label = QLabel()
+            label.setPixmap(pixmap)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vbox.addWidget(label)
+
+        geo_text=''
+        if photo['latitude']==0: 
+            geo_text='🌍❌'
+            
+        photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}"
+        info = QLabel(f"{photo['datetaken']} - {photo['title']}{geo_text}<br><a href='{photo_url}'>Open on Flickr</a>")
+        info.setTextFormat(Qt.TextFormat.RichText)
+        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        info.setOpenExternalLinks(True)
+        vbox.addWidget(info)
+
+
+        select_button = QPushButton("Select This Photo")
+        select_button.clicked.connect(lambda _, pid=photo['id']: self.select_photo(pid))
+        vbox.addWidget(select_button)
+
+        self.scroll_layout.addWidget(frame)
+
+    def select_photo(self, photo_id):
+        self.selected_photo_id = photo_id
+        QMessageBox.information(self, "Selection", f"Selected Photo ID: {photo_id}")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = FlickrBrowser()
+    window.show()
+    sys.exit(app.exec())

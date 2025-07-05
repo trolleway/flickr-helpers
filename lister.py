@@ -14,6 +14,8 @@ parser.add_argument("--tags", type=str, help="Comma-separated tags for search", 
 parser.add_argument("--tag_mode", type=str, choices=["all", "any"], help="Tag mode: 'all' or 'any'", required=False)
 parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
 
+parser.add_argument("--query", type=str, choices=["search", "getWithoutGeoData"], default='search', help="query on flickr api", required=False)
+
 duration = parser.add_mutually_exclusive_group(required=False)
 duration.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD format)", required=False)
 duration.add_argument("--interval", type=str,  choices=["day"], required=False)
@@ -61,7 +63,10 @@ search_params["extras"] = 'url_s,url_o,date_taken,tags,geo'
 
 
 # Execute search with only provided parameters
-photos = flickr.photos.search(**search_params)
+if args.query == 'search':
+    photos = flickr.photos.search(**search_params)
+elif args.query == 'getWithoutGeoData':
+    photos = flickr.photos.getWithoutGeoData(**search_params)
 
 # Print results
 if args.output == 'json':
@@ -144,6 +149,8 @@ table {
     ids_all=list()
     for pic in photosbydate:
         ids_all.append(pic['id'])
-    links = '''<a href="https://www.flickr.com/photos/organize/?ids='''+','.join(ids_all)+'''">all pics from page</a>'''
+    links=''
+    links += '''<a href="https://www.flickr.com/photos/organize/?ids='''+','.join(ids_all)+'''">open in organizr all pics from page</a></br>'''
+    links += '''<a href="https://www.flickr.com/photos/organize/?ids='''+','.join(no_geo_pics_ids)+'''">open in organizr images without coordinates</a></br>'''
     html_template = html_template.format(css=css,rows=rows, links=links)
     print(html_template)
