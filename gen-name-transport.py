@@ -50,12 +50,16 @@ class Model():
         if route is not None and len(route)>0:
             new_tags += ' line'+str(route)
         if model is not None and len(model)>0:
-            new_tags += ' '+str(model)
+            if ' ' in model:
+                new_tags += ' "'+str(model)+'"'
+            else:    
+                new_tags += ' '+str(model)
         operator = textsdict.get('operator','')
         operator = str(operator)
         operator=operator.strip()
         if operator != '':
             new_tags += ' '+str(operator)
+        new_tags += ' namegenerated'
 
         flickr.photos.setMeta(
             photo_id=photo_id,
@@ -104,19 +108,20 @@ class FlickrBrowser(QWidget):
         layout = QVBoxLayout()
 
         # Input fields
-        self.inputs = {}
-        fields = ["user_id", "tags", "tag_mode", "min_taken_date", "max_taken_date"]
+        self.inputs_search = {}
+        fields = ["user_id", "tags", "tag_mode", "min_taken_date", "max_taken_date","per_page","page"]
         for field in fields:
             row = QHBoxLayout()
             label = QLabel(field)
             edit = QLineEdit()
-            self.inputs[field] = edit
+            self.inputs_search[field] = edit
             row.addWidget(label)
             row.addWidget(edit)
             layout.addLayout(row)
 
-        self.inputs["tag_mode"].setPlaceholderText("all or any")
-
+        self.inputs_search["tag_mode"].setPlaceholderText("all or any")
+        self.inputs_search["per_page"].setPlaceholderText("50")
+        self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
@@ -134,12 +139,33 @@ class FlickrBrowser(QWidget):
         layout.addWidget(self.formtab)
         
         # Create tabs
-        self.formtab.addTab(QWidget(), "tram")  # Empty tab
-        self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
+        self.formtab.addTab(self.create_tram_tab(), "tram")
+        #self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
         self.formtab.addTab(QWidget(), "bus")   # Empty tab
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
         self.setLayout(layout)
+
+    def create_tram_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        # Add text fields
+        self.fields = {}
+        for label in ["transport","street", "model", "number", "route", "city", "operator"]:
+            line_edit = QLineEdit()
+            if label=='transport':
+                line_edit.setText('tram')
+            self.fields[label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+
+        # Add "write" button
+        write_btn = QPushButton("Write")
+        write_btn.clicked.connect(self.on_write)
+        form_layout.addRow(write_btn)
+
+        tab.setLayout(form_layout)
+        return tab
 
     def create_trolleybus_tab(self):
         tab = QWidget()
@@ -170,7 +196,7 @@ class FlickrBrowser(QWidget):
         if flickrid == '':
             QMessageBox.warning(self, "Invalid data", "Select photo frist")
             return
-        print("Trolleybus data:", textsdict, 'on photo=',flickrid)
+        print("Image data:", textsdict, 'on photo=',flickrid)
         
         self.model.transport_image_flickr_update(self.flickr, flickrid, textsdict)
 
@@ -183,7 +209,7 @@ class FlickrBrowser(QWidget):
                 widget.setParent(None)
 
         params = {"extras": "url_s,url_o,date_taken,tags,geo"}
-        for key, widget in self.inputs.items():
+        for key, widget in self.inputs_search.items():
             val = widget.text().strip()
             if val:
                 params[key] = val
@@ -199,17 +225,25 @@ class FlickrBrowser(QWidget):
 
         if "user_id" not in params:
             params["user_id"] = self.flickr.test.login()['user']['id']
+        params['sort']='date-taken-asc'
 
         photos = self.flickr.photos.search(**params)
 
-        #for photo in photos["photos"]["photo"]:
-        for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
-            self.add_photo_widget(photo)
-
+        result_list=photos["photos"]["photo"]
+        if len(result_list)==0:
+            self.info_search_noresults()
+        else:
+            for photo in result_list:
+                #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
+                if 'namegenerated' in photo['tags']:
+                    continue
+                self.add_photo_widget(photo)
+    def info_search_noresults(self):
+        QMessageBox.warning(self, "Not found", "Select photo return no results")
     def add_photo_widget(self, photo):
         frame = QFrame()
         frame.setFrameShape(QFrame.Shape.StyledPanel)
-        vbox = QVBoxLayout()
+        vbox = QHBoxLayout()
         frame.setLayout(vbox)
 
         image_url = photo.get("url_s")
@@ -226,7 +260,7 @@ class FlickrBrowser(QWidget):
         if photo['latitude']==0: 
             geo_text='🌍❌'
             
-        photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}"
+        photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = QLabel(f"{photo['datetaken']} - {photo['title']}{geo_text}<br><a href='{photo_url}'>Open on Flickr</a>")
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
