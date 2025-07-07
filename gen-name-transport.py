@@ -3,7 +3,7 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout
+    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox
     
 )
 from PyQt6.QtGui import QPixmap
@@ -79,7 +79,7 @@ class FlickrBrowser(QWidget):
         self.setWindowTitle("Flickr Image Browser")
         self.model = Model()
 
-        self.selected_photo_id = None
+        self.selecteds_list = list()
         
 
 
@@ -109,7 +109,7 @@ class FlickrBrowser(QWidget):
 
         # Input fields
         self.inputs_search = {}
-        fields = ["user_id", "tags", "tag_mode", "min_taken_date", "max_taken_date","per_page","page"]
+        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","per_page","page"]
         for field in fields:
             row = QHBoxLayout()
             label = QLabel(field)
@@ -135,14 +135,32 @@ class FlickrBrowser(QWidget):
         self.scroll_area.setWidget(self.scroll_widget)
         layout.addWidget(self.scroll_area)
         
+        #selection panel
+        self.selectedimgs_formcontainer=QGroupBox('Selection')
+        layout.addWidget(self.selectedimgs_formcontainer)
+        self.selectedimgs_formcontainer_layout = QVBoxLayout()
+        self.selectedimgs_formcontainer.setLayout(self.selectedimgs_formcontainer_layout)
+        self.selections_label=QLabel()
+        self.selectedimgs_formcontainer_layout.addWidget(self.selections_label)
+        self.deselect_photos_button = QPushButton("Deselect all")
+        self.deselect_photos_button.clicked.connect(self.deselect_photos)
+        self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
+        
+        
+        # texts form
         self.formtab=QTabWidget()
         layout.addWidget(self.formtab)
         
-        # Create tabs
+        # Create form tabs
         self.formtab.addTab(self.create_tram_tab(), "tram")
         #self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
         self.formtab.addTab(QWidget(), "bus")   # Empty tab
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
+        
+        # Add "write" button
+        self.write_btn = QPushButton("Write")
+        self.write_btn.clicked.connect(self.on_write)
+        layout.addWidget(self.write_btn)
         
         self.setLayout(layout)
 
@@ -159,10 +177,6 @@ class FlickrBrowser(QWidget):
             self.fields[label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
 
-        # Add "write" button
-        write_btn = QPushButton("Write")
-        write_btn.clicked.connect(self.on_write)
-        form_layout.addRow(write_btn)
 
         tab.setLayout(form_layout)
         return tab
@@ -180,25 +194,28 @@ class FlickrBrowser(QWidget):
             self.fields[label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
 
-        # Add "write" button
-        write_btn = QPushButton("Write")
-        write_btn.clicked.connect(self.on_write)
-        form_layout.addRow(write_btn)
+
 
         tab.setLayout(form_layout)
         return tab
 
     def on_write(self):
+        self.write_btn.setText('...writing...')
+        self.write_btn.setEnabled(False)
         textsdict = {field: widget.text() for field, widget in self.fields.items()}
         flickrid=''
-        if self.selected_photo_id is not None:
-            flickrid=self.selected_photo_id
-        if flickrid == '':
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                self.model.transport_image_flickr_update(self.flickr, flickrid, textsdict)
+        else:
             QMessageBox.warning(self, "Invalid data", "Select photo frist")
-            return
-        print("Image data:", textsdict, 'on photo=',flickrid)
         
-        self.model.transport_image_flickr_update(self.flickr, flickrid, textsdict)
+        self.deselect_photos()
+        self.write_btn.setText('Write')
+        self.write_btn.setEnabled(True)
+        
+        
+        
 
 
 
@@ -208,11 +225,14 @@ class FlickrBrowser(QWidget):
             if widget:
                 widget.setParent(None)
 
-        params = {"extras": "url_s,url_o,date_taken,tags,geo"}
+        params = {"extras": "url_w,date_taken,tags,geo"}
         for key, widget in self.inputs_search.items():
             val = widget.text().strip()
             if val:
                 params[key] = val
+        
+        tags4query=params['tags']
+        params.pop("tags", None)
 
         # Add logic for "interval" (if max not given)
         if "min_taken_date" in params and "max_taken_date" not in params:
@@ -223,11 +243,12 @@ class FlickrBrowser(QWidget):
                 QMessageBox.warning(self, "Invalid Date", "Use YYYY-MM-DD format")
                 return
 
-        if "user_id" not in params:
-            params["user_id"] = self.flickr.test.login()['user']['id']
+
+        params["user_id"] = self.flickr.test.login()['user']['id']
         params['sort']='date-taken-asc'
 
         photos = self.flickr.photos.search(**params)
+        
 
         result_list=photos["photos"]["photo"]
         if len(result_list)==0:
@@ -237,6 +258,18 @@ class FlickrBrowser(QWidget):
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
                 if 'namegenerated' in photo['tags']:
                     continue
+                if tags4query != '':
+                    tags4search=list()
+                    tags4search=[tag.strip().strip('"') for tag in photo['tags'].split(' ')]
+                    if not any(elem in tags4query for elem in tags4search):
+                        continue
+                    if photo['tags']=='':
+                        continue
+
+
+                    # for all mode all(elem in list2 for elem in list1)
+
+
                 self.add_photo_widget(photo)
     def info_search_noresults(self):
         QMessageBox.warning(self, "Not found", "Select photo return no results")
@@ -246,7 +279,7 @@ class FlickrBrowser(QWidget):
         vbox = QHBoxLayout()
         frame.setLayout(vbox)
 
-        image_url = photo.get("url_s")
+        image_url = photo.get("url_w")
         if image_url:
             data = urlopen(image_url).read()
             pixmap = QPixmap()
@@ -261,23 +294,45 @@ class FlickrBrowser(QWidget):
             geo_text='🌍❌'
             
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
-        info = QLabel(f"{photo['datetaken']} - {photo['title']}{geo_text}<br><a href='{photo_url}'>Open on Flickr</a>")
+        info = QLabel(f"{photo['title']}{geo_text} {photo['datetaken']} <br><a href='{photo_url}'>Open on Flickr</a>")
         info.setTextFormat(Qt.TextFormat.RichText)
         info.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         info.setOpenExternalLinks(True)
         vbox.addWidget(info)
 
 
-        select_button = QPushButton("Select This Photo")
+        select_button = QPushButton("Select Only This Photo")
         select_button.clicked.connect(lambda _, pid=photo['id']: self.select_photo(pid))
         vbox.addWidget(select_button)
 
+        select_button_append = QPushButton("Multiple selection")
+        select_button_append.clicked.connect(lambda _, pid=photo['id']: self.select_photo_append(pid))
+        vbox.addWidget(select_button_append)
         self.scroll_layout.addWidget(frame)
 
     def select_photo(self, photo_id):
-        self.selected_photo_id = photo_id
-        QMessageBox.information(self, "Selection", f"Selected Photo ID: {photo_id}")
+        self.selecteds_list = list()
+        self.selecteds_list.append(photo_id)
+        self.selections_display_update()
 
+
+    def select_photo_append(self, photo_id):
+        if photo_id not in self.selecteds_list:
+            self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+    def deselect_photos(self):
+        self.selecteds_list=list()
+        self.selections_display_update()
+    def selections_display_update(self):
+        if len(self.selecteds_list)>0:
+            self.selections_label.setText(str(len(self.selecteds_list))+': '+' '.join(self.selecteds_list))
+            self.write_btn.setEnabled(True)
+            #for flickrid in self.selecteds_list:
+            #    self.selections_label
+        else:
+            self.selections_label.setText('')
+            self.write_btn.setEnabled(False)
+    
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = FlickrBrowser()
