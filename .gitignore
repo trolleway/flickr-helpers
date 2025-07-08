@@ -192,3 +192,8 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+devupdater.py
+.gitignore
+.vscode/launch.json
+config.py
+table.htm
