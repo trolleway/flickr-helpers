@@ -11,6 +11,8 @@ from PyQt6.QtCore import Qt
 from urllib.request import urlopen
 from datetime import datetime, timedelta
 import webbrowser
+import argparse
+
 
 class Model():
 
@@ -74,10 +76,11 @@ class Model():
         )
 
 class FlickrBrowser(QWidget):
-    def __init__(self):
+    def __init__(self,args):
         super().__init__()
         self.setWindowTitle("Flickr Image Browser")
         self.model = Model()
+        self.args = args
 
         self.selecteds_list = list()
         
@@ -109,19 +112,21 @@ class FlickrBrowser(QWidget):
 
         # Input fields
         self.inputs_search = {}
-        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","per_page","page"]
+        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","per_page"]
         for field in fields:
             row = QHBoxLayout()
             label = QLabel(field)
             edit = QLineEdit()
+            if hasattr(self.args, field) and getattr(self.args, field) is not None:
+                edit.setText(str(getattr(self.args, field)))
             self.inputs_search[field] = edit
             row.addWidget(label)
             row.addWidget(edit)
             layout.addLayout(row)
 
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
-        self.inputs_search["per_page"].setPlaceholderText("50")
-        self.inputs_search["page"].setPlaceholderText("1")
+        self.inputs_search["per_page"].setText(str(50))
+        #self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
@@ -246,11 +251,30 @@ class FlickrBrowser(QWidget):
 
         params["user_id"] = self.flickr.test.login()['user']['id']
         params['sort']='date-taken-asc'
+        params['per_page']=int(params['per_page'])
+        #params['page'] = 1
 
+        #params['page']=1
         photos = self.flickr.photos.search(**params)
-        
-
         result_list=photos["photos"]["photo"]
+        '''
+                result_list = list()
+        gonextpage=True
+        page_counter=0
+        while(gonextpage):
+            page_counter = page_counter+1
+            params['page']=page_counter
+            print(params)
+            photos = self.flickr.photos.search(**params)
+            result_list_page=photos["photos"]["photo"]
+            result_list=result_list+result_list_page
+            gonextpage=False
+            if len(result_list_page)>0 and photos['photos']['pages']>page_counter:
+                gonextpage=True
+        '''
+
+
+        
         if len(result_list)==0:
             self.info_search_noresults()
         else:
@@ -281,11 +305,15 @@ class FlickrBrowser(QWidget):
 
         image_url = photo.get("url_w")
         if image_url:
-            data = urlopen(image_url).read()
-            pixmap = QPixmap()
-            pixmap.loadFromData(data)
-            label = QLabel()
-            label.setPixmap(pixmap)
+            try:
+                data = urlopen(image_url).read()
+                pixmap = QPixmap()
+                pixmap.loadFromData(data)
+                label = QLabel()
+                label.setPixmap(pixmap)
+            except:
+                label = QLabel()
+                label.setText('some error')
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             vbox.addWidget(label)
 
@@ -334,7 +362,21 @@ class FlickrBrowser(QWidget):
             self.write_btn.setEnabled(False)
     
 if __name__ == "__main__":
+    
+    
+
+    parser = argparse.ArgumentParser(description="Interface for make photo names of transport on flickr")
+    parser.add_argument("--tags", type=str, help="Comma-separated tags for search", required=False)
+    parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
+    parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD format)", required=False)
+    parser.add_argument("--per_page", type=str, help="per page param for flickr search api", required=False)
+    
+
+
+    args = parser.parse_args()
+
+
     app = QApplication(sys.argv)
-    window = FlickrBrowser()
+    window = FlickrBrowser(args)
     window.show()
     sys.exit(app.exec())
