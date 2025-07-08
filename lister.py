@@ -14,6 +14,7 @@ parser.add_argument("--tags", type=str, help="Comma-separated tags for search", 
 parser.add_argument("--tag_mode", type=str, choices=["all", "any"], help="Tag mode: 'all' or 'any'", required=False)
 parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
 
+
 parser.add_argument("--query", type=str, choices=["search", "getWithoutGeoData"], default='search', help="query on flickr api", required=False)
 
 duration = parser.add_mutually_exclusive_group(required=False)
