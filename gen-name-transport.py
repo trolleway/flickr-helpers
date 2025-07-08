@@ -3,18 +3,62 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox
+    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy
     
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from PyQt6.QtCore import QRunnable, QThreadPool, pyqtSignal, QObject
 from datetime import datetime, timedelta
 import webbrowser
 import argparse
+from PyQt6.QtWebEngineWidgets import QWebEngineView
 
+class ImageLoaderSignals(QObject):
+    finished = pyqtSignal(QPixmap, object, str)  # pixmap, photo, error_text
 
+class ImageLoader(QRunnable):
+    def __init__(self, image_url, photo, callback):
+        super().__init__()
+        self.image_url = image_url
+        self.photo = photo
+        self.signals = ImageLoaderSignals()
+        self.signals.finished.connect(callback)
+
+    def run(self):
+        pixmap = QPixmap()
+        error_text = ""
+        try:
+            data = urlopen(self.image_url).read()
+            pixmap = QPixmap()
+            pixmap.loadFromData(data)
+        except HTTPError as e:
+            error_text = f"HTTP Error {e.code}"
+        except URLError as e:
+            error_text = f"URL Error: {e.reason}"
+        except Exception as e:
+            error_text = f"Unexpected error: {str(e)}"
+        self.signals.finished.emit(pixmap, self.photo, error_text)
+        
 class Model():
+
+
+    def more_tags_process(self,input_string):
+        # Remove leading/trailing spaces
+        trimmed = input_string.strip()
+
+        # Check for empty or all-space input
+        if not trimmed:
+            return []
+
+        # Check if input contains commas
+        if ',' in trimmed:
+            return [tag.strip() for tag in trimmed.split(',')]
+
+        # Otherwise, return as a single-element list with stripped string
+        return [trimmed]
 
 
     def transport_image_flickr_update(self,flickr, photo_id, textsdict):
@@ -48,7 +92,7 @@ class Model():
         route=str(textsdict.get('route'))
         newname = f'{city} {transport} {number} {datestr} {street} {model}'.replace('  ',' ')
 
-        new_tags=f'{city} {transport}'
+        new_tags=f'"{city}" {transport} "{street}"'
         if route is not None and len(route)>0:
             new_tags += ' line'+str(route)
         if model is not None and len(model)>0:
@@ -59,8 +103,14 @@ class Model():
         operator = textsdict.get('operator','')
         operator = str(operator)
         operator=operator.strip()
+        
         if operator != '':
             new_tags += ' '+str(operator)
+        more_tags = list()    
+        if textsdict.get('more_tags','') != '':
+            new_tags += ' '
+            new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
+            
         new_tags += ' namegenerated'
 
         flickr.photos.setMeta(
@@ -112,7 +162,7 @@ class FlickrBrowser(QWidget):
 
         # Input fields
         self.inputs_search = {}
-        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","per_page"]
+        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","days","per_page"]
         for field in fields:
             row = QHBoxLayout()
             label = QLabel(field)
@@ -126,19 +176,36 @@ class FlickrBrowser(QWidget):
 
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
         self.inputs_search["per_page"].setText(str(50))
+        self.inputs_search["days"].setInputMask("00") 
+        self.inputs_search["days"].setPlaceholderText("number")
         #self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
+        
+        self.selectarea=QHBoxLayout()
 
         # Image scroll area
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout()
         self.scroll_widget.setLayout(self.scroll_layout)
         self.scroll_area.setWidget(self.scroll_widget)
-        layout.addWidget(self.scroll_area)
+        self.scroll_area.setMinimumHeight(400)
+        
+        self.selectarea.addWidget(self.scroll_area, stretch=1)
+        
+        #browser
+        self.browser = QWebEngineView()
+        #self.browser.setMaximumHeight(400)
+        self.browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.selectarea.addWidget(self.browser, stretch=0)
+        self.browser.setHtml('''<html><body>content</body></html> ''')
+        
+        layout.addLayout(self.selectarea)
+        
         
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selection')
@@ -175,7 +242,7 @@ class FlickrBrowser(QWidget):
 
         # Add text fields
         self.fields = {}
-        for label in ["transport","street", "model", "number", "route", "city", "operator"]:
+        for label in ["transport","operator","city","model", "number", "route","street",   'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('tram')
@@ -203,7 +270,17 @@ class FlickrBrowser(QWidget):
 
         tab.setLayout(form_layout)
         return tab
-
+    
+    def display_image_browser(self, url):
+        html = f"""
+        <html>
+        <body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0;">
+            <img src="{url}" alt="Image" style="max-width:100%; max-height:100%;" />
+        </body>
+        </html>
+        """
+        self.browser.setHtml(html)
+        
     def on_write(self):
         self.write_btn.setText('...writing...')
         self.write_btn.setEnabled(False)
@@ -223,12 +300,15 @@ class FlickrBrowser(QWidget):
         
 
 
-
-    def search_photos(self):
+    def reset_search_results(self):
         for i in reversed(range(self.scroll_layout.count())):
             widget = self.scroll_layout.itemAt(i).widget()
             if widget:
-                widget.setParent(None)
+                widget.setParent(None)      
+    def search_photos(self):
+        #self.get_photos_from_album('72177720327428694')
+        #return
+        self.reset_search_results()
 
         params = {"extras": "url_w,date_taken,tags,geo"}
         for key, widget in self.inputs_search.items():
@@ -236,17 +316,30 @@ class FlickrBrowser(QWidget):
             if val:
                 params[key] = val
         
-        tags4query=params['tags']
+        tags4query=params.get('tags','')
         params.pop("tags", None)
 
         # Add logic for "interval" (if max not given)
         if "min_taken_date" in params and "max_taken_date" not in params:
             try:
-                date = datetime.strptime(params["min_taken_date"], "%Y-%m-%d")
-                params["max_taken_date"] = (date + timedelta(days=1)).strftime("%Y-%m-%d")
+                raw_date = params["min_taken_date"]
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        date = datetime.strptime(raw_date, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    raise ValueError("Invalid date format")
+
+                if 'days' in params:
+                    next_day = date + timedelta(days=int(params['days']))
+                    params["max_taken_date"] = next_day.strftime("%Y-%m-%d %H:%M:%S")
+
             except ValueError:
-                QMessageBox.warning(self, "Invalid Date", "Use YYYY-MM-DD format")
+                QMessageBox.warning(self, "Invalid Date", "Use format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
                 return
+
 
 
         params["user_id"] = self.flickr.test.login()['user']['id']
@@ -256,9 +349,9 @@ class FlickrBrowser(QWidget):
 
         #params['page']=1
         photos = self.flickr.photos.search(**params)
-        result_list=photos["photos"]["photo"]
-        '''
-                result_list = list()
+        #result_list=photos["photos"]["photo"]
+        
+        result_list = list()
         gonextpage=True
         page_counter=0
         while(gonextpage):
@@ -271,7 +364,7 @@ class FlickrBrowser(QWidget):
             gonextpage=False
             if len(result_list_page)>0 and photos['photos']['pages']>page_counter:
                 gonextpage=True
-        '''
+        
 
 
         
@@ -295,6 +388,34 @@ class FlickrBrowser(QWidget):
 
 
                 self.add_photo_widget(photo)
+        pass
+    def get_photos_from_album(self,photoset_id):
+        self.reset_search_results()
+        photos_dict = {}
+        
+        # Fetch photos from the given album/photoset
+        response = self.flickr.photosets.getPhotos(photoset_id=photoset_id)
+        photos = response['photoset']['photo']
+
+        for photo in photos:
+            photo_id = photo['id']
+            photo_info = self.flickr.photos.getInfo(photo_id=photo_id)['photo']
+            
+            # Store photo data keyed by photo ID
+            photos_dict[photo_id] = {
+                'title': photo_info['title']['_content'],
+                'description': photo_info['description']['_content'],
+                'tags': [tag['_content'] for tag in photo_info['tags']['tag']],
+                'url': f"https://farm{photo_info['farm']}.staticflickr.com/{photo_info['server']}/{photo_id}_{photo_info['secret']}.jpg"
+            }
+
+        if len(photos_dict)==0:
+            self.info_search_noresults()
+        else:
+            for photo in photos_dict:
+                self.add_photo_widget(photo)
+
+
     def info_search_noresults(self):
         QMessageBox.warning(self, "Not found", "Select photo return no results")
     def add_photo_widget(self, photo):
@@ -303,8 +424,12 @@ class FlickrBrowser(QWidget):
         vbox = QHBoxLayout()
         frame.setLayout(vbox)
 
-        image_url = photo.get("url_w")
+        #image_url = photo.get("url_w")
+        image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
         if image_url:
+            label = QLabel("Loading...")
+            
+            '''
             try:
                 data = urlopen(image_url).read()
                 pixmap = QPixmap()
@@ -314,8 +439,17 @@ class FlickrBrowser(QWidget):
             except:
                 label = QLabel()
                 label.setText('some error')
+            '''
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             vbox.addWidget(label)
+            def on_image_loaded(pixmap, photo, error_text):
+                if not pixmap.isNull():
+                    label.setPixmap(pixmap)
+                else:
+                    label.setText(error_text or "some error")
+
+        loader = ImageLoader(image_url, photo, on_image_loaded)
+        QThreadPool.globalInstance().start(loader)
 
         geo_text=''
         if photo['latitude']==0: 
@@ -330,7 +464,7 @@ class FlickrBrowser(QWidget):
 
 
         select_button = QPushButton("Select Only This Photo")
-        select_button.clicked.connect(lambda _, pid=photo['id']: self.select_photo(pid))
+        select_button.clicked.connect(lambda _, pid=photo['id']: self.select_photo(pid,image_url))
         vbox.addWidget(select_button)
 
         select_button_append = QPushButton("Multiple selection")
@@ -338,10 +472,12 @@ class FlickrBrowser(QWidget):
         vbox.addWidget(select_button_append)
         self.scroll_layout.addWidget(frame)
 
-    def select_photo(self, photo_id):
+    def select_photo(self, photo_id,image_url):
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
+        self.display_image_browser(image_url)
+        
 
 
     def select_photo_append(self, photo_id):
@@ -367,8 +503,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Interface for make photo names of transport on flickr")
     parser.add_argument("--tags", type=str, help="Comma-separated tags for search", required=False)
-    parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
-    parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD format)", required=False)
+    parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD HH:MM:SS format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
+    parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
     parser.add_argument("--per_page", type=str, help="per page param for flickr search api", required=False)
     
 
