@@ -3,7 +3,7 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy
+    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem
     
 )
 from PyQt6.QtGui import QPixmap
@@ -112,11 +112,17 @@ class Model():
             new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
             
         new_tags += ' namegenerated'
+        olddesc=info['photo']['description']['_content']
+        newdesc=olddesc
+        if olddesc.strip()=='OLYMPUS DIGITAL CAMERA':
+            olddesc=''
+        if olddesc.strip()=='' and street != '':
+            newdesc = street
 
         flickr.photos.setMeta(
             photo_id=photo_id,
             title=newname,
-            description=info['photo']['description']['_content']
+            description=newdesc
         )
 
         # Step 4: Update tags
@@ -124,6 +130,7 @@ class Model():
             photo_id=photo_id,
             tags=new_tags
         )
+        
 
 class FlickrBrowser(QWidget):
     def __init__(self,args):
@@ -177,25 +184,29 @@ class FlickrBrowser(QWidget):
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
         self.inputs_search["per_page"].setText(str(50))
         self.inputs_search["days"].setInputMask("00") 
-        self.inputs_search["days"].setPlaceholderText("number")
+        #self.inputs_search["days"].setPlaceholderText("number")
         #self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
         
-        self.selectarea=QHBoxLayout()
-
         # Image scroll area
+        self.selectarea=QHBoxLayout()
         self.scroll_area = QScrollArea()
+        
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.scroll_area.setFixedHeight(400)
+        #self.scroll_area.setMinimumHeight(400)
+        self.scroll_area.setMaximumHeight(412)
+        #self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.scroll_widget = QWidget()
         self.scroll_layout = QVBoxLayout()
         self.scroll_widget.setLayout(self.scroll_layout)
         self.scroll_area.setWidget(self.scroll_widget)
-        self.scroll_area.setMinimumHeight(400)
+
         
         self.selectarea.addWidget(self.scroll_area, stretch=1)
+        
         
         #browser
         self.browser = QWebEngineView()
@@ -204,13 +215,14 @@ class FlickrBrowser(QWidget):
         self.selectarea.addWidget(self.browser, stretch=0)
         self.browser.setHtml('''<html><body>content</body></html> ''')
         
-        layout.addLayout(self.selectarea)
         
+        layout.addLayout(self.selectarea)
+        layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
         
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selection')
         layout.addWidget(self.selectedimgs_formcontainer)
-        self.selectedimgs_formcontainer_layout = QVBoxLayout()
+        self.selectedimgs_formcontainer_layout = QHBoxLayout()
         self.selectedimgs_formcontainer.setLayout(self.selectedimgs_formcontainer_layout)
         self.selections_label=QLabel()
         self.selectedimgs_formcontainer_layout.addWidget(self.selections_label)
@@ -389,31 +401,6 @@ class FlickrBrowser(QWidget):
 
                 self.add_photo_widget(photo)
         pass
-    def get_photos_from_album(self,photoset_id):
-        self.reset_search_results()
-        photos_dict = {}
-        
-        # Fetch photos from the given album/photoset
-        response = self.flickr.photosets.getPhotos(photoset_id=photoset_id)
-        photos = response['photoset']['photo']
-
-        for photo in photos:
-            photo_id = photo['id']
-            photo_info = self.flickr.photos.getInfo(photo_id=photo_id)['photo']
-            
-            # Store photo data keyed by photo ID
-            photos_dict[photo_id] = {
-                'title': photo_info['title']['_content'],
-                'description': photo_info['description']['_content'],
-                'tags': [tag['_content'] for tag in photo_info['tags']['tag']],
-                'url': f"https://farm{photo_info['farm']}.staticflickr.com/{photo_info['server']}/{photo_id}_{photo_info['secret']}.jpg"
-            }
-
-        if len(photos_dict)==0:
-            self.info_search_noresults()
-        else:
-            for photo in photos_dict:
-                self.add_photo_widget(photo)
 
 
     def info_search_noresults(self):
@@ -503,8 +490,10 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Interface for make photo names of transport on flickr")
     parser.add_argument("--tags", type=str, help="Comma-separated tags for search", required=False)
+    
     parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD HH:MM:SS format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
     parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
+    parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
     parser.add_argument("--per_page", type=str, help="per page param for flickr search api", required=False)
     
 
