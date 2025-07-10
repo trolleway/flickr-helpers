@@ -5,6 +5,7 @@ import sys
 import flickrapi
 import config
 from datetime import datetime, timedelta
+import re
 
 
 # Set up argument parser
@@ -13,7 +14,7 @@ parser.add_argument("--user_id", type=str, help="Flickr user ID, by default it y
 parser.add_argument("--tags", type=str, help="Comma-separated tags for search", required=False)
 parser.add_argument("--tag_mode", type=str, choices=["all", "any"], help="Tag mode: 'all' or 'any'", required=False)
 parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
-
+parser.add_argument('-re','--name-regexp')
 
 parser.add_argument("--query", type=str, choices=["search", "getWithoutGeoData"], default='search', help="query on flickr api", required=False)
 
@@ -23,7 +24,7 @@ duration.add_argument("--interval", type=str,  choices=["day"], required=False)
 
 parser.add_argument("--output", type=str, choices=["json", "html"],default='json',required=False)
 
-epilog='''lister.py --min_taken_date 2017-03-26 --max_taken_date 2017-03-27'''
+epilog='''lister.py --min_taken_date 2017-03-26 --max_taken_date 2017-03-27 -re ^Moscow.*$'''
 
 args = parser.parse_args()
 
@@ -138,12 +139,23 @@ table {
     
     photosbydate = sorted(photos['photos']['photo'], key=lambda x: x["datetaken"], reverse=True)
     
+    # second pass filter
+    templist = list()
+    if args.name_regexp is not None:
+        namepattern = re.compile(r'^Moscow.*$')
+
+        for pic in photosbydate:
+            if not bool(namepattern.fullmatch(pic['title'])):
+                continue
+            templist.append(pic)
+    photosbydate = templist
+    
     for pic in photosbydate:
         geo_text=''
         if pic['latitude']==0: 
             geo_text='🌍❌'
             no_geo_pics_ids.append(pic['id'])
-        row=f'''<tr><td>{pic['datetaken']}</td><td><a href="https://www.flickr.com/photos/{pic['owner']}/{pic['id']}"><img src="{pic['url_s']}"></a><td>{pic['title']}</td><td class="monospace">{pic['tags']}</td><td>{geo_text}</td>\n'''
+        row=f'''<tr><td>{pic['datetaken']}</td><td><a href="https://www.flickr.com/photos/{pic['owner']}/{pic['id']}/in/datetaken/"><img src="{pic['url_s']}"></a><td>{pic['title']}</td><td class="monospace">{pic['tags']}</td><td>{geo_text}</td>\n'''
         
         rows = rows + row
     
