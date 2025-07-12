@@ -441,9 +441,9 @@ table {
         self.browser_main_table.setHtml(html, QUrl("qrc:/"))
         
 
-        channel = QWebChannel()
-        channel.registerObject("backend", self.backend)
-        self.browser_main_table.page().setWebChannel(channel)
+        self.web_channel = QWebChannel()
+        self.web_channel.registerObject("backend", self.backend)
+        self.browser_main_table.page().setWebChannel(self.web_channel)
 
 
     def info_search_noresults(self):
