@@ -15,33 +15,29 @@ from datetime import datetime, timedelta
 import webbrowser
 import argparse
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtGui import QDesktopServices
 
-class ImageLoaderSignals(QObject):
-    finished = pyqtSignal(QPixmap, object, str)  # pixmap, photo, error_text
+from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtCore import QObject, pyqtSlot, QUrl
 
-class ImageLoader(QRunnable):
-    def __init__(self, image_url, photo, callback):
-        super().__init__()
-        self.image_url = image_url
-        self.photo = photo
-        self.signals = ImageLoaderSignals()
-        self.signals.finished.connect(callback)
 
-    def run(self):
-        pixmap = QPixmap()
-        error_text = ""
-        try:
-            data = urlopen(self.image_url).read()
-            pixmap = QPixmap()
-            pixmap.loadFromData(data)
-        except HTTPError as e:
-            error_text = f"HTTP Error {e.code}"
-        except URLError as e:
-            error_text = f"URL Error: {e.reason}"
-        except Exception as e:
-            error_text = f"Unexpected error: {str(e)}"
-        self.signals.finished.emit(pixmap, self.photo, error_text)
+class Backend(QObject):
+    imgSelected = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img(self, image_id):
+        print(f"Image clicked: {image_id}")
+        self.imgSelected.emit(str(image_id))
         
+
+class ExternalLinkPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url, _type, isMainFrame):
+        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            QDesktopServices.openUrl(url)
+            return False
+        return super().acceptNavigationRequest(url, _type, isMainFrame)
+    
+    
 class Model():
 
 
@@ -141,10 +137,63 @@ class FlickrBrowser(QWidget):
 
         self.selecteds_list = list()
         
+        self.backend = Backend()
+
+        # Connect the signal to your method
+        self.backend.imgSelected.connect(self.select_photo)
+        
 
 
         self.init_ui()
         self.flickr = self.authenticate_flickr()
+        
+        self.css='''        body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #444;
+            padding: 4px;
+            text-align: left;
+        }
+        th {
+            background-color: #333;
+        }
+        a {
+            color: #ffcc00;
+        }
+        
+        td.monospace {font-family: monospace;}
+
+        
+        img {
+    transition: transform 0.5s ease-in-out;
+}
+
+img:hover {
+    transform: scale(1.1);
+}
+
+/* fade in */
+table {
+    opacity: 0;
+    animation: fadeIn 1s ease-in forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.localphoto { width: 400px;}
+
+        
+        '''
 
     def authenticate_flickr(self):
         flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
@@ -182,7 +231,7 @@ class FlickrBrowser(QWidget):
             layout.addLayout(row)
 
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
-        self.inputs_search["per_page"].setText(str(50))
+        #self.inputs_search["per_page"].setText(str(50))
         self.inputs_search["days"].setInputMask("00") 
         #self.inputs_search["days"].setPlaceholderText("number")
         #self.inputs_search["page"].setPlaceholderText("1")
@@ -190,34 +239,10 @@ class FlickrBrowser(QWidget):
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
         
-        # Image scroll area
-        self.selectarea=QHBoxLayout()
-        self.scroll_area = QScrollArea()
-        
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFixedHeight(400)
-        #self.scroll_area.setMinimumHeight(400)
-        self.scroll_area.setMaximumHeight(412)
-        #self.scroll_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.scroll_widget = QWidget()
-        self.scroll_layout = QVBoxLayout()
-        self.scroll_widget.setLayout(self.scroll_layout)
-        self.scroll_area.setWidget(self.scroll_widget)
-
-        
-        self.selectarea.addWidget(self.scroll_area, stretch=1)
-        
-        
-        #browser
-        self.browser = QWebEngineView()
-        #self.browser.setMaximumHeight(400)
-        self.browser.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.selectarea.addWidget(self.browser, stretch=0)
-        self.browser.setHtml('''<html><body>content</body></html> ''')
-        
-        
-        layout.addLayout(self.selectarea)
-        layout.addSpacerItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+        self.browser_main_table = QWebEngineView()
+        layout.addWidget(self.browser_main_table)
+        self.browser_main_table.setHtml('''<html><body><h1>wait for query</h1>''', QUrl("qrc:/"))
+       
         
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selection')
@@ -230,7 +255,10 @@ class FlickrBrowser(QWidget):
         self.deselect_photos_button.clicked.connect(self.deselect_photos)
         self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
         
-        
+        # Add "write" button
+        self.write_btn = QPushButton("Write")
+        self.write_btn.clicked.connect(self.on_write)
+        layout.addWidget(self.write_btn)
         # texts form
         self.formtab=QTabWidget()
         layout.addWidget(self.formtab)
@@ -241,10 +269,7 @@ class FlickrBrowser(QWidget):
         self.formtab.addTab(QWidget(), "bus")   # Empty tab
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
-        # Add "write" button
-        self.write_btn = QPushButton("Write")
-        self.write_btn.clicked.connect(self.on_write)
-        layout.addWidget(self.write_btn)
+
         
         self.setLayout(layout)
 
@@ -283,15 +308,7 @@ class FlickrBrowser(QWidget):
         tab.setLayout(form_layout)
         return tab
     
-    def display_image_browser(self, url):
-        html = f"""
-        <html>
-        <body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; height:100vh; background-color:#f0f0f0;">
-            <img src="{url}" alt="Image" style="max-width:100%; max-height:100%;" />
-        </body>
-        </html>
-        """
-        self.browser.setHtml(html)
+
         
     def on_write(self):
         self.write_btn.setText('...writing...')
@@ -313,14 +330,14 @@ class FlickrBrowser(QWidget):
 
 
     def reset_search_results(self):
-        for i in reversed(range(self.scroll_layout.count())):
-            widget = self.scroll_layout.itemAt(i).widget()
-            if widget:
-                widget.setParent(None)      
+        self.browser_main_table.setHtml('''<html><body><h1>wait for query execute</h1>''', QUrl("qrc:/"))
+        pass
+    
     def search_photos(self):
         #self.get_photos_from_album('72177720327428694')
         #return
         self.reset_search_results()
+        trs=''
 
         params = {"extras": "url_w,date_taken,tags,geo"}
         for key, widget in self.inputs_search.items():
@@ -399,71 +416,57 @@ class FlickrBrowser(QWidget):
                     # for all mode all(elem in list2 for elem in list1)
 
 
-                self.add_photo_widget(photo)
-        pass
+
+                trs+=self.gen_photo_row(photo)
+        
+        html="""<html>       <head>
+            <style>
+"""+self.css+"""
+    </style>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+            <script>
+                let backend;
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    backend = channel.objects.backend;
+                });
+
+                function handleSelectImg(imageId) {
+                    backend.handle_select_img(imageId);
+                }
+            </script>
+        </head><body><table>"""
+        html+=trs
+        html+='</table></html>'
+        self.browser_main_table.setPage(ExternalLinkPage(self.browser_main_table))
+        self.browser_main_table.setHtml(html, QUrl("qrc:/"))
+        
+
+        channel = QWebChannel()
+        channel.registerObject("backend", self.backend)
+        self.browser_main_table.page().setWebChannel(channel)
 
 
     def info_search_noresults(self):
         QMessageBox.warning(self, "Not found", "Select photo return no results")
-    def add_photo_widget(self, photo):
-        frame = QFrame()
-        frame.setFrameShape(QFrame.Shape.StyledPanel)
-        vbox = QHBoxLayout()
-        frame.setLayout(vbox)
-
-        #image_url = photo.get("url_w")
+    def gen_photo_row(self,photo):
+        tr=''
         image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
-        if image_url:
-            label = QLabel("Loading...")
-            
-            '''
-            try:
-                data = urlopen(image_url).read()
-                pixmap = QPixmap()
-                pixmap.loadFromData(data)
-                label = QLabel()
-                label.setPixmap(pixmap)
-            except:
-                label = QLabel()
-                label.setText('some error')
-            '''
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            vbox.addWidget(label)
-            def on_image_loaded(pixmap, photo, error_text):
-                if not pixmap.isNull():
-                    label.setPixmap(pixmap)
-                else:
-                    label.setText(error_text or "some error")
-
-        loader = ImageLoader(image_url, photo, on_image_loaded)
-        QThreadPool.globalInstance().start(loader)
-
         geo_text=''
         if photo['latitude']==0: 
             geo_text='🌍❌'
-            
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
-        info = QLabel(f"{photo['title']}{geo_text} {photo['datetaken']} <br><a href='{photo_url}'>Open on Flickr</a>")
-        info.setTextFormat(Qt.TextFormat.RichText)
-        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        info.setOpenExternalLinks(True)
-        vbox.addWidget(info)
+        info = f"{photo['title']}{geo_text} {photo['datetaken']} <br><a href='{photo_url}'>Open on Flickr</a>"
+        
+        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}</td><td><button onclick="handleSelectImg('{photo['id']}')">Select</button></td></tr>'''+"\n"
+        return tr
 
 
-        select_button = QPushButton("Select Only This Photo")
-        select_button.clicked.connect(lambda _, pid=photo['id']: self.select_photo(pid,image_url))
-        vbox.addWidget(select_button)
-
-        select_button_append = QPushButton("Multiple selection")
-        select_button_append.clicked.connect(lambda _, pid=photo['id']: self.select_photo_append(pid))
-        vbox.addWidget(select_button_append)
-        self.scroll_layout.addWidget(frame)
-
-    def select_photo(self, photo_id,image_url):
+    def select_photo(self, photo_id):
+        print('called select_photo',photo_id)
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
-        self.display_image_browser(image_url)
+
         
 
 
@@ -494,7 +497,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD HH:MM:SS format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
     parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
     parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
-    parser.add_argument("--per_page", type=str, help="per page param for flickr search api", required=False)
+    parser.add_argument("--per_page", type=int, help="per page param for flickr search api", required=False)
     
 
 
