@@ -26,9 +26,12 @@ class Backend(QObject):
     imgSelected = pyqtSignal(str)
     @pyqtSlot(str)
     def handle_select_img(self, image_id):
-        print(f"Image clicked: {image_id}")
         self.imgSelected.emit(str(image_id))
-        
+
+    imgSelectedAppend = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_append(self, image_id):
+        self.imgSelectedAppend.emit(str(image_id))        
 
 class ExternalLinkPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, _type, isMainFrame):
@@ -85,10 +88,11 @@ class Model():
         datestr=info['photo']['dates']['taken'][0:10]
         street=textsdict.get('street')
         model=textsdict.get('model')
-        numberplate=textsdict.get('numberplate')
+        numberplate=textsdict.get('numberplate','').strip()
         route=str(textsdict.get('route'))
         operator = str(textsdict.get('operator','')).strip()
         region = str(textsdict.get('region','')).strip()
+        desc = str(textsdict.get('desc','')).strip()
         if transport in ('bus','trolleybus','tram'):
             if number != '':
                 simplenum = number
@@ -114,12 +118,9 @@ class Model():
                 new_tags += ' '+str(numberplate)
         
         elif transport == 'automobile':
-            if number != '':
-                simplenum = number
-            elif numberplate is not None:
-                simplenum = numberplate
+
             brand = str(textsdict.get('brand','')).strip()
-            newname = f'{city} {brand} {model} {simplenum} {datestr} {street} '.replace('  ',' ')
+            newname = f'{city} {brand} {model} {numberplate} {datestr} {street} '.replace('  ',' ')
 
             new_tags=f'"{city}" auto automobile "{street}"'
             if model is not None and len(model)>0:
@@ -163,6 +164,7 @@ class Model():
             olddesc=''
         if olddesc.strip()=='' and street != '':
             newdesc = street
+        if desc != '': newdesc = desc + "\n"+street
 
         flickr.photos.setMeta(
             photo_id=photo_id,
@@ -190,7 +192,7 @@ class FlickrBrowser(QWidget):
 
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.select_photo)
-        
+        self.backend.imgSelectedAppend.connect(self.select_photo_append)
 
 
         self.init_ui()
@@ -352,7 +354,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["transport","city","operator", "number", "model","route","street",   'more_tags']:
+        for label in ["transport","city","operator", "number", "model","route","street", 'desc',  'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('trolleybus')
@@ -365,7 +367,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["transport","city","operator", "number","numberplate", "model","route","street",   'more_tags']:
+        for label in ["transport","city","operator", "number","numberplate", "model","route","street",'desc',   'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('bus')
@@ -378,7 +380,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["transport","city","brand", "numberplate", "model","street",   'more_tags']:
+        for label in ["transport","city","brand", "numberplate", "model","street", 'desc',  'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('automobile')
@@ -391,7 +393,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["transport","physical","owner","number","station","city","model","line","service",   'more_tags']:
+        for label in ["transport","physical","owner","number","station","city","model","line","service", 'desc',  'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('train')
@@ -529,6 +531,10 @@ table {
                 function handleSelectImg(imageId) {
                     backend.handle_select_img(imageId);
                 }
+                
+                function handleSelectImgAppend(imageId) {
+                    backend.handle_select_img_append(imageId);
+                }
             </script>
         </head><body><table>"""
         html+=trs
@@ -553,7 +559,7 @@ table {
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f"{photo['title']}{geo_text} {photo['datetaken']} <br><a href='{photo_url}'>Open on Flickr</a>"
         
-        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}</td><td><button onclick="handleSelectImg('{photo['id']}')">Select</button></td></tr>'''+"\n"
+        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}</td><td><button onclick="handleSelectImg('{photo['id']}')">Select</button><button onclick="handleSelectImgAppend('{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
         return tr
 
 
