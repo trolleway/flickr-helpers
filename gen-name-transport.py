@@ -79,30 +79,79 @@ class Model():
 
         # Step 3: Update photo metadata
 
-        city=textsdict['city'].capitalize()
+        city=textsdict.get('city','').capitalize()
         transport=textsdict['transport'].lower()
-        number=str(textsdict['number'])
+        number=str(textsdict.get('number'))
         datestr=info['photo']['dates']['taken'][0:10]
-        street=textsdict['street']
+        street=textsdict.get('street')
         model=textsdict.get('model')
+        numberplate=textsdict.get('numberplate')
         route=str(textsdict.get('route'))
-        newname = f'{city} {transport} {number} {datestr} {street} {model}'.replace('  ',' ')
+        operator = str(textsdict.get('operator','')).strip()
+        region = str(textsdict.get('region','')).strip()
+        if transport in ('bus','trolleybus','tram'):
+            if number != '':
+                simplenum = number
+            elif numberplate is not None:
+                simplenum = numberplate
+            newname = f'{city} {transport} {simplenum} {datestr} {street} {model}'.replace('  ',' ')
 
-        new_tags=f'"{city}" {transport} "{street}"'
-        if route is not None and len(route)>0:
-            new_tags += ' line'+str(route)
-        if model is not None and len(model)>0:
-            if ' ' in model:
-                new_tags += ' "'+str(model)+'"'
-            else:    
-                new_tags += ' '+str(model)
-        operator = textsdict.get('operator','')
-        operator = str(operator)
-        operator=operator.strip()
+            new_tags=f'"{city}" {transport} "{street}"'
+            if route is not None and len(route)>0:
+                new_tags += ' line'+str(route)
+            if model is not None and len(model)>0:
+                if ' ' in model:
+                    new_tags += ' "'+str(model)+'"'
+                else:    
+                    new_tags += ' '+str(model)
+            
+            if operator != '':
+                new_tags += ' "'+str(operator)+'"'
+            if region != '':
+                new_tags += ' "'+str(region)+'"' 
+            
+            if numberplate != '':
+                new_tags += ' '+str(numberplate)
         
-        if operator != '':
-            new_tags += ' '+str(operator)
-        more_tags = list()    
+        elif transport == 'automobile':
+            if number != '':
+                simplenum = number
+            elif numberplate is not None:
+                simplenum = numberplate
+            brand = str(textsdict.get('brand','')).strip()
+            newname = f'{city} {brand} {model} {simplenum} {datestr} {street} '.replace('  ',' ')
+
+            new_tags=f'"{city}" auto automobile "{street}"'
+            if model is not None and len(model)>0:
+                if ' ' in model:
+                    new_tags += ' "'+str(model)+'"'
+                else:    
+                    new_tags += ' '+str(model)
+            
+            if operator != '':
+                new_tags += ' "'+str(operator)+'"'
+            if region != '':
+                new_tags += ' "'+str(region)+'"' 
+            
+            if numberplate != '':
+                new_tags += ' '+str(numberplate)  
+                  
+        elif transport == 'train':
+            owner = str(textsdict.get('owner','')).strip()
+            physical = str(textsdict.get('physical','')).strip()
+            line = str(textsdict.get('line','')).strip()
+            station = str(textsdict.get('station','')).strip()
+            service = str(textsdict.get('service','')).strip()
+            newname = f'{owner} {number} {physical} {line} {station} {service} {datestr}'.replace('  ',' ')
+
+            new_tags=f'"{city}" {transport} "{number}"'
+            
+            for tag in [model, operator, station, line, region]:
+                if tag:
+                    new_tags += f' "{tag}"'
+
+        
+            
         if textsdict.get('more_tags','') != '':
             new_tags += ' '
             new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
@@ -240,6 +289,7 @@ table {
         layout.addWidget(self.search_btn)
         
         self.browser_main_table = QWebEngineView()
+        self.browser_main_table.setFixedHeight(450)
         layout.addWidget(self.browser_main_table)
         self.browser_main_table.setHtml('''<html><body><h1>wait for query</h1>''', QUrl("qrc:/"))
        
@@ -264,9 +314,17 @@ table {
         layout.addWidget(self.formtab)
         
         # Create form tabs
+        self.formwritefields = {}
+        self.formwritefields['tram']={}
         self.formtab.addTab(self.create_tram_tab(), "tram")
-        #self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
-        self.formtab.addTab(QWidget(), "bus")   # Empty tab
+        self.formwritefields['trolleybus']={}
+        self.formtab.addTab(self.create_trolleybus_tab(), "trolleybus")
+        self.formwritefields['bus']={}
+        self.formtab.addTab(self.create_bus_tab(), "bus")
+        self.formwritefields['train']={}
+        self.formtab.addTab(self.create_train_tab(), "train")
+        self.formwritefields['automobile']={}
+        self.formtab.addTab(self.create_automobile_tab(), "automobile")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
 
@@ -278,12 +336,12 @@ table {
         form_layout = QFormLayout()
 
         # Add text fields
-        self.fields = {}
-        for label in ["transport","operator","city","model", "number", "route","street",   'more_tags']:
+        
+        for label in ["transport","city","operator", "number", "model","route","street",   'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('tram')
-            self.fields[label] = line_edit
+            self.formwritefields['tram'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
 
 
@@ -294,26 +352,62 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        # Add text fields
-        self.fields = {}
-        for label in ["transport","street", "model", "number", "route", "city", "operator"]:
+        for label in ["transport","city","operator", "number", "model","route","street",   'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('trolleybus')
-            self.fields[label] = line_edit
+            self.formwritefields['trolleybus'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
-
-
-
         tab.setLayout(form_layout)
         return tab
-    
 
+    def create_bus_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["transport","city","operator", "number","numberplate", "model","route","street",   'more_tags']:
+            line_edit = QLineEdit()
+            if label=='transport':
+                line_edit.setText('bus')
+            self.formwritefields['bus'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+        tab.setLayout(form_layout)
+        return tab    
+
+    def create_automobile_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["transport","city","brand", "numberplate", "model","street",   'more_tags']:
+            line_edit = QLineEdit()
+            if label=='transport':
+                line_edit.setText('automobile')
+            self.formwritefields['automobile'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+        tab.setLayout(form_layout)
+        return tab  
+
+    def create_train_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["transport","physical","owner","number","station","city","model","line","service",   'more_tags']:
+            line_edit = QLineEdit()
+            if label=='transport':
+                line_edit.setText('train')
+            self.formwritefields['train'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+        tab.setLayout(form_layout)
+        return tab    
         
     def on_write(self):
         self.write_btn.setText('...writing...')
         self.write_btn.setEnabled(False)
-        textsdict = {field: widget.text() for field, widget in self.fields.items()}
+        
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        textsdict = {field: widget.text() for field, widget in self.formwritefields[current_tab_name].items()}
         flickrid=''
         if len(self.selecteds_list)>0:
             for flickrid in self.selecteds_list:
@@ -375,6 +469,7 @@ table {
         params['sort']='date-taken-asc'
         params['per_page']=int(params['per_page'])
         #params['page'] = 1
+        params['content_types']='0'
 
         #params['page']=1
         photos = self.flickr.photos.search(**params)
@@ -386,8 +481,9 @@ table {
         while(gonextpage):
             page_counter = page_counter+1
             params['page']=page_counter
-            print(params)
             photos = self.flickr.photos.search(**params)
+            msg=str(photos['photos']['page']).zfill(2) + ' / '+str(photos['photos']['pages']).zfill(2)
+            print(msg)
             result_list_page=photos["photos"]["photo"]
             result_list=result_list+result_list_page
             gonextpage=False
