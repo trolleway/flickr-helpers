@@ -339,7 +339,7 @@ table {
 
         # Add text fields
         
-        for label in ["transport","city","operator", "number", "model","route","street",   'more_tags']:
+        for label in ["transport","city","operator", "number", "model","route","street",  'desc', 'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('tram')
@@ -442,7 +442,7 @@ table {
                 params[key] = val
         
         tags4query=params.get('tags','')
-        params.pop("tags", None)
+        #params.pop("tags", None)
 
         # Add logic for "interval" (if max not given)
         if "min_taken_date" in params and "max_taken_date" not in params:
@@ -498,6 +498,7 @@ table {
         if len(result_list)==0:
             self.info_search_noresults()
         else:
+            result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
                 if 'namegenerated' in photo['tags']:
