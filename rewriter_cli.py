@@ -95,6 +95,7 @@ def clip_localphotos_by_dates(photo_list: List[Dict],min_taken_date:str, max_tak
 def find_filckr_already_uploadeds(localphotos: List[Dict], flickrimgs: List[Dict]) -> List[Dict]:
 
     flickr2del=list()
+    flickr_level2 = list()
     for photo in localphotos:
         dt = photo["simplified_datetime"]
         #print('search candidate for local photo '+str(dt))
@@ -106,22 +107,30 @@ def find_filckr_already_uploadeds(localphotos: List[Dict], flickrimgs: List[Dict
             photo["candidated_text"]='no match, do upload'
         
         if len(matched_flickrimgs) == 1:
-            photo["candidated_text"]='1 found '
+            photo["candidated_text"]=''
+            link='<a href="https://www.flickr.com/photos/'+matched_flickrimgs[0].get('owner')+'/'+matched_flickrimgs[0].get('id')+'/in/datetaken/">flickr</a>'
             if matched_flickrimgs[0].get('longitude',0)!=0:
                 flickr_geo = True
             
             if flickr_geo == True:
                 photo["candidated_text"]='1 found '
+                record=dict()
+                record['local']=photo
+                stats = flickr.photos.getinfo(photo_id=matched_flickrimgs[0].get('id'))
+                record['flickr_stats']=stats
+                record['flickr_search']=matched_flickrimgs[0]
+                flickr_level2.append(record)
             elif flickr_geo == False:
                 editurl='''<a href="https://www.flickr.com/photos/organize/?ids='''+matched_flickrimgs[0].get('id')+'''">organizr</a></br>'''
                 photo["candidated_text"] +='1 found flickr image has no geotag'
                 photo["editurl"]=editurl
                 flickr2del.append(matched_flickrimgs[0].get('id'))
+            photo['candidated_text']+=link
 
         
         if len(matched_flickrimgs) == 1 and 'namegenerated' in matched_flickrimgs[0].get('tags',''):
             photo["candidated_text"]='uploaded and named good on flickr, move local photo to uploaded folder'    
-    return localphotos,flickr2del
+    return localphotos,flickr2del,flickr_level2
 
 from datetime import datetime
 from dateutil import parser
@@ -160,14 +169,14 @@ def flickr_search_by_dateslist(search_params,local_photos_dates):
     for day in days:
         search_params['min_taken_date']=day.strftime("%Y-%m-%d")
         search_params['max_taken_date']=(day + timedelta(days=1)).strftime("%Y-%m-%d")
-        print(search_params)
+
         sr = flickr.photos.search(**search_params)
         srp=sr['photos']['photo']
         #print(flickrresult)
         flickrresult['photos']['photo'] += srp
 
     return flickrresult
-    quit()
+
 
 def authenticate_flickr():
     """Authenticate and return the Flickr API client in a Termux-friendly way."""
@@ -216,7 +225,7 @@ else:
     photos = flickr_search_by_dateslist(search_params,local_photos_dates)
 
 photosbydate = sorted(photos['photos']['photo'], key=lambda x: x["datetaken"], reverse=False)
-localphotos, flickr2del = find_filckr_already_uploadeds(localphotos,photosbydate)
+localphotos, flickr2del, flickr_level2 = find_filckr_already_uploadeds(localphotos,photosbydate)
 
 # Execute search with only provided parameters
 
@@ -279,7 +288,8 @@ table {
 }
 
 .localphoto { width: 400px;}
-
+.listing {    font-family: monospace;
+    font-size: 8;}
         
         '''
     
@@ -303,5 +313,34 @@ table {
         links='''<a href="https://www.flickr.com/photos/organize/?ids='''+','.join(flickr2del)+'''">open in organizr pics for delete</a></br>'''
     
     html_template = html_template.format(css=css,rows=rows, links=links)
-    print(html_template) 
+    print(html_template)
+    
+    if len(flickr_level2)>0:
+        out='<table>'
+        commands=list()
+        commands2=list()
+        subdir=os.path.join(os.path.dirname(flickr_level2[0]['local']['filepath']),'already_on_flickr')
+        for record in flickr_level2:
+            if 'already_on_flickr' not in record['local']['filepath']:
+                commands.append(f'mkdir {subdir}')
+                break
+        need_mkdir=False
+        for record in flickr_level2:
+            row= f'''<tr><td><img src="{record['local']['filepath']}" class="localphoto"></td><td><img src="{record['flickr_search']['url_s']}" class="localphoto"</td>
+            <td><a href="https://www.flickr.com/photos/{record['flickr_search']['owner']}/{record['flickr_search']['id']}/in/datetaken/">flickr</a></td>
+            <td>{record['flickr_stats']['photo']['views']}</td>
+            '''
+            fn1=record['local']['filepath']
+            if 'already_on_flickr' not in record['local']['filepath']:
+                commands.append(f'mv {record['local']['filepath']} '+os.path.join(subdir,os.path.basename(record['local']['filepath'])))
+            if 'namegenerated' not in record['flickr_search']['tags']:
+                commands2.append(f'''python edit.py {record['flickr_search']['id']} --add-tags "noname" --desc "" ''')
+            out += row
+        out += '</table>'
+        out += '<p class="listing">'
+        out+='<br/>'.join(commands)
+        out+='<br/>'.join(commands2)
+        
+        print(out)
+
    
