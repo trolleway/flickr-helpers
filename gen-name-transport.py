@@ -266,6 +266,7 @@ table {
     
     def init_ui(self):
         layout = QVBoxLayout()
+        middlelayout = QHBoxLayout()
 
         # Input fields
         self.inputs_search = {}
@@ -290,12 +291,6 @@ table {
         self.search_btn.clicked.connect(self.search_photos)
         layout.addWidget(self.search_btn)
         
-        self.browser_main_table = QWebEngineView()
-        self.browser_main_table.setFixedHeight(450)
-        layout.addWidget(self.browser_main_table)
-        self.browser_main_table.setHtml('''<html><body><h1>wait for query</h1>''', QUrl("qrc:/"))
-       
-        
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selection')
         layout.addWidget(self.selectedimgs_formcontainer)
@@ -306,14 +301,21 @@ table {
         self.deselect_photos_button = QPushButton("Deselect all")
         self.deselect_photos_button.clicked.connect(self.deselect_photos)
         self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
-        
-        # Add "write" button
-        self.write_btn = QPushButton("Write")
-        self.write_btn.clicked.connect(self.on_write)
-        layout.addWidget(self.write_btn)
+
+        # display browser panel
+        self.browser_main_table = QWebEngineView()
+        self.browser_main_table.setFixedHeight(450)
+        # do not focus on frist href after html set
+        self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        #self.browser_main_table.page().settings().setAttribute(QWebEnginePage.WebAttribute.FocusOnNavigationEnabled, False)
+        middlelayout.addWidget(self.browser_main_table)
+        self.browser_main_table.setHtml('''<html><body><h1>wait for query</h1>''', QUrl("qrc:/"))
+       
         # texts form
         self.formtab=QTabWidget()
-        layout.addWidget(self.formtab)
+        middlelayout.addWidget(self.formtab)
+        layout.addLayout(middlelayout)
         
         # Create form tabs
         self.formwritefields = {}
@@ -329,6 +331,12 @@ table {
         self.formtab.addTab(self.create_automobile_tab(), "automobile")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
+        # "write" button
+        self.write_btn = QPushButton("Write")
+        self.write_btn.clicked.connect(self.on_write)
+        layout.addWidget(self.write_btn)
+        
+        
 
         
         self.setLayout(layout)
@@ -339,7 +347,7 @@ table {
 
         # Add text fields
         
-        for label in ["transport","city","operator", "number", "model","route","street",  'desc', 'more_tags']:
+        for label in ["transport","city","operator","model", "number", "route","street",  'desc', 'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
                 line_edit.setText('tram')
@@ -403,8 +411,11 @@ table {
         return tab    
         
     def on_write(self):
-        self.write_btn.setText('...writing...')
-        self.write_btn.setEnabled(False)
+    
+        #self.write_btn.setText('...writing...')
+        #self.write_btn.setEnabled(False)
+        
+        #return
         
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
@@ -418,8 +429,8 @@ table {
             QMessageBox.warning(self, "Invalid data", "Select photo frist")
         
         self.deselect_photos()
-        self.write_btn.setText('Write')
-        self.write_btn.setEnabled(True)
+        #self.write_btn.setText('Write')
+        #self.write_btn.setEnabled(True)
         
         
         
@@ -541,6 +552,8 @@ table {
         html+=trs
         html+='</table></html>'
         self.browser_main_table.setPage(ExternalLinkPage(self.browser_main_table))
+        self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
         self.browser_main_table.setHtml(html, QUrl("qrc:/"))
         
 
@@ -558,9 +571,9 @@ table {
         if photo['latitude']==0: 
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
-        info = f"{photo['title']}{geo_text} {photo['datetaken']} <br><a href='{photo_url}'>Open on Flickr</a>"
+        info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a>'''
         
-        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}</td><td><button onclick="handleSelectImg('{photo['id']}')">Select</button><button onclick="handleSelectImgAppend('{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
+        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg('{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend('{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
         return tr
 
 
@@ -600,7 +613,7 @@ if __name__ == "__main__":
     parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD HH:MM:SS format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
     parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
     parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
-    parser.add_argument("--per_page", type=int, help="per page param for flickr search api", required=False)
+    parser.add_argument("--per_page", type=int, default=500, help="per page param for flickr search api", required=False)
     
 
 
