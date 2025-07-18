@@ -21,6 +21,8 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWebChannel import QWebChannel
 from PyQt6.QtCore import QObject, pyqtSlot, QUrl
 
+import requests
+
 
 class Backend(QObject):
     imgSelected = pyqtSignal(str)
@@ -189,6 +191,7 @@ class FlickrBrowser(QWidget):
         self.selecteds_list = list()
         
         self.backend = Backend()
+        self.changeset = list()
 
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.select_photo)
@@ -197,6 +200,7 @@ class FlickrBrowser(QWidget):
 
         self.init_ui()
         self.flickr = self.authenticate_flickr()
+        self.flickrimgs=list()
         
         self.css='''        body {
             background-color: #1a1a1a;
@@ -318,6 +322,7 @@ table {
         layout.addLayout(middlelayout)
         
         # Create form tabs
+        self.geolookup_buttons = {}
         self.formwritefields = {}
         self.formwritefields['tram']={}
         self.formtab.addTab(self.create_tram_tab(), "tram")
@@ -334,7 +339,15 @@ table {
         # "write" button
         self.write_btn = QPushButton("Write")
         self.write_btn.clicked.connect(self.on_write)
-        layout.addWidget(self.write_btn)
+        layout.addWidget(self.write_btn)        
+        
+        self.changeset_add_btn = QPushButton("Add to changeset")
+        self.changeset_add_btn.clicked.connect(self.on_changeset_add)
+        layout.addWidget(self.changeset_add_btn)
+        
+        self.changeset_write_btn = QPushButton("Write changeset")
+        self.changeset_write_btn.clicked.connect(self.on_write_changeset)
+        layout.addWidget(self.changeset_write_btn)
         
         
 
@@ -353,6 +366,12 @@ table {
                 line_edit.setText('tram')
             self.formwritefields['tram'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
+            if label=='street':
+                self.geolookup_buttons['tram']=dict()
+                self.geolookup_buttons['tram']['street']=QPushButton("⇪ geolookup_street ⇪")
+                self.geolookup_buttons['tram']['street'].clicked.connect(self.on_geolookup_street)
+                form_layout.addRow(":", self.geolookup_buttons['tram']['street'])
+                
 
 
         tab.setLayout(form_layout)
@@ -410,10 +429,34 @@ table {
         tab.setLayout(form_layout)
         return tab    
         
+    def on_changeset_add(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        textsdict = {field: widget.text() for field, widget in self.formwritefields[current_tab_name].items()}
+        flickrid=''
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                self.changeset.append({'id':flickrid, 'textsdict':textsdict})
+            self.deselect_photos()
+        else:
+            QMessageBox.warning(self, "Invalid data", "Select photo frist")
+        
+        
+    def on_write_changeset(self):
+    
+        if len(self.changeset)>0:
+            for change in self.changeset:
+                self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
+            self.changeset = list()
+        else:
+            QMessageBox.warning(self, "Invalid data", "Make edits frist")
+            
+    
     def on_write(self):
     
-        #self.write_btn.setText('...writing...')
-        #self.write_btn.setEnabled(False)
+        self.write_btn.setText('...writing...')
+        self.write_btn.setEnabled(False)
         
         #return
         
@@ -429,10 +472,59 @@ table {
             QMessageBox.warning(self, "Invalid data", "Select photo frist")
         
         self.deselect_photos()
-        #self.write_btn.setText('Write')
-        #self.write_btn.setEnabled(True)
+        self.write_btn.setText('Write')
+        self.write_btn.setEnabled(True)
         
-        
+    def on_geolookup_street(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            print('signal2')
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        
+                        # lookup
+                        # Example coordinates
+                        lat = float(img['latitude'])
+                        lon = float(img['longitude'])
+
+                        # Define a small buffer (in degrees) around the point
+                        delta = 0.00001 
+
+                        # Create the rectangle coordinates (clockwise or counter-clockwise)
+                        rectangle_coords = [
+                            (lon - delta, lat - delta),
+                            (lon - delta, lat + delta),
+                            (lon + delta, lat + delta),
+                            (lon + delta, lat - delta),
+                            (lon - delta, lat - delta)  # Close the polygon
+                        ]
+
+                        # Convert to WKT polygon string
+                        wkt_string = 'POLYGON((' + ', '.join([f'{x} {y}' for x, y in rectangle_coords]) + '))'
+                        ngw_url='https://trolleway.nextgis.com'
+                        ngw_layer=5820
+
+                        payload={'srs':4326, 'geom':wkt_string,  "layers":list([ngw_layer])}
+                        url=ngw_url+'/api/feature_layer/identify'
+                        request = requests.post(url, json = payload)
+                        
+                        print('signal1')
+                        print(request)
+                        print(request.status_code)
+
+                        if request.status_code == 201:
+
+                            response = request.json()
+                            print(response)
+
+
+
+                        self.formwritefields[current_tab_name]['street'].setText(img['latitude']+img['longitude'])
+                    
+                #self.formwritefields[current_tab_name]['street'].setText('geoliik')
         
 
 
@@ -504,12 +596,13 @@ table {
                 gonextpage=True
         
 
-
         
+        self.flickrimgs=list()
         if len(result_list)==0:
             self.info_search_noresults()
         else:
-            result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+            #result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+            result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=False)
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
                 if 'namegenerated' in photo['tags']:
@@ -560,6 +653,7 @@ table {
         self.web_channel = QWebChannel()
         self.web_channel.registerObject("backend", self.backend)
         self.browser_main_table.page().setWebChannel(self.web_channel)
+        self.flickrimgs=result_list
 
 
     def info_search_noresults(self):

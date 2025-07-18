@@ -120,7 +120,7 @@ def find_filckr_already_uploadeds(localphotos: List[Dict], flickrimgs: List[Dict
                 record['flickr_stats']=stats
                 record['flickr_search']=matched_flickrimgs[0]
                 flickr_level2.append(record)
-            elif flickr_geo == False:
+            else:
                 editurl='''<a href="https://www.flickr.com/photos/organize/?ids='''+matched_flickrimgs[0].get('id')+'''">organizr</a></br>'''
                 photo["candidated_text"] +='1 found flickr image has no geotag'
                 photo["editurl"]=editurl
