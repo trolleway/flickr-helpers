@@ -336,10 +336,7 @@ table {
         self.formtab.addTab(self.create_automobile_tab(), "automobile")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
-        # "write" button
-        self.write_btn = QPushButton("Write")
-        self.write_btn.clicked.connect(self.on_write)
-        layout.addWidget(self.write_btn)        
+     
         
         self.changeset_add_btn = QPushButton("Add to changeset")
         self.changeset_add_btn.clicked.connect(self.on_changeset_add)
@@ -453,27 +450,7 @@ table {
             QMessageBox.warning(self, "Invalid data", "Make edits frist")
             
     
-    def on_write(self):
-    
-        self.write_btn.setText('...writing...')
-        self.write_btn.setEnabled(False)
-        
-        #return
-        
-        current_tab_index = self.formtab.currentIndex()
-        current_tab_name = self.formtab.tabText(current_tab_index)
 
-        textsdict = {field: widget.text() for field, widget in self.formwritefields[current_tab_name].items()}
-        flickrid=''
-        if len(self.selecteds_list)>0:
-            for flickrid in self.selecteds_list:
-                self.model.transport_image_flickr_update(self.flickr, flickrid, textsdict)
-        else:
-            QMessageBox.warning(self, "Invalid data", "Select photo frist")
-        
-        self.deselect_photos()
-        self.write_btn.setText('Write')
-        self.write_btn.setEnabled(True)
         
     def on_geolookup_street(self):
         current_tab_index = self.formtab.currentIndex()
