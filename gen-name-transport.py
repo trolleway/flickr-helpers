@@ -326,6 +326,7 @@ table {
         layout.addLayout(middlelayout)
         
         # Create form tabs
+        self.routelookup_buttons = {}
         self.geolookup_buttons = {}
         self.numlookup_buttons = {}
         self.formwritefields = {}
@@ -378,6 +379,11 @@ table {
                 self.numlookup_buttons['tram']['number']=QPushButton("⇪ take num from name prefix ⇪")
                 self.numlookup_buttons['tram']['number'].clicked.connect(self.on_numlookup)
                 form_layout.addRow(":", self.numlookup_buttons['tram']['number'])
+            if label=='route':
+                self.routelookup_buttons['tram']=dict()
+                self.routelookup_buttons['tram']['number']=QPushButton("⇪ take route from name prefix ⇪")
+                self.routelookup_buttons['tram']['number'].clicked.connect(self.on_routelookup)
+                form_layout.addRow(":", self.routelookup_buttons['tram']['number'])
                 
 
 
@@ -475,7 +481,37 @@ table {
                         text = text[:text.find(' ')]
                         self.formwritefields[current_tab_name]['number'].setText(text)
                         return
-                        # lookup      
+           
+    def on_routelookup(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        text=img['title']
+
+                        
+                        import re
+
+                        regex = "_r(.*?)[_.\b]"
+                        test_str = text
+                        route=''
+
+                        matches = re.finditer(regex, test_str, re.MULTILINE)
+                        for match in matches:
+                            result = match.group()[2:-1]
+                            if "eplace" in result:
+                                continue
+                            route = result
+                            del result
+                        if route == "z":
+                            route = None
+                
+                        self.formwritefields[current_tab_name]['route'].setText(route)
+                        return
+   
                         
     def on_geolookup_street(self):
         current_tab_index = self.formtab.currentIndex()
