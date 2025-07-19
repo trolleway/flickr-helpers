@@ -323,6 +323,7 @@ table {
         
         # Create form tabs
         self.geolookup_buttons = {}
+        self.numlookup_buttons = {}
         self.formwritefields = {}
         self.formwritefields['tram']={}
         self.formtab.addTab(self.create_tram_tab(), "tram")
@@ -368,6 +369,11 @@ table {
                 self.geolookup_buttons['tram']['street']=QPushButton("⇪ geolookup_street ⇪")
                 self.geolookup_buttons['tram']['street'].clicked.connect(self.on_geolookup_street)
                 form_layout.addRow(":", self.geolookup_buttons['tram']['street'])
+            if label=='number':
+                self.numlookup_buttons['tram']=dict()
+                self.numlookup_buttons['tram']['number']=QPushButton("⇪ take num from name prefix ⇪")
+                self.numlookup_buttons['tram']['number'].clicked.connect(self.on_numlookup)
+                form_layout.addRow(":", self.numlookup_buttons['tram']['number'])
                 
 
 
@@ -452,18 +458,32 @@ table {
     
 
         
+    def on_numlookup(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        text=img['title']
+                        text = text.replace('_',' ')
+                        text = text[:text.find(' ')]
+                        self.formwritefields[current_tab_name]['number'].setText(text)
+                        return
+                        # lookup      
+                        
     def on_geolookup_street(self):
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
 
         if len(self.selecteds_list)>0:
-            print('signal2')
             for flickrid in self.selecteds_list:
                 for img in self.flickrimgs: 
                     if img['id'] == flickrid:
                         
                         # lookup
-                        # Example coordinates
+
                         lat = float(img['latitude'])
                         lon = float(img['longitude'])
 
@@ -515,7 +535,7 @@ table {
         self.reset_search_results()
         trs=''
 
-        params = {"extras": "url_w,date_taken,tags,geo"}
+        params = {"extras": "date_taken,tags,geo,url_o"}
         for key, widget in self.inputs_search.items():
             val = widget.text().strip()
             if val:
@@ -620,7 +640,9 @@ table {
             </script>
         </head><body><table>"""
         html+=trs
-        html+='</table></html>'
+        html+='</table>'
+        html+='<p style="font-face: monospace;">Total: '+str(len(result_list))+'</p>'
+        html+='</html>'
         self.browser_main_table.setPage(ExternalLinkPage(self.browser_main_table))
         self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -637,12 +659,14 @@ table {
         QMessageBox.warning(self, "Not found", "Select photo return no results")
     def gen_photo_row(self,photo):
         tr=''
+        print(photo)
         image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
+        image_url_o = f"{photo['url_o']}"
         geo_text=''
         if photo['latitude']==0: 
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
-        info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a>'''
+        info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
         
         tr=f'''<tr><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg('{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend('{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
         return tr
@@ -667,12 +691,10 @@ table {
     def selections_display_update(self):
         if len(self.selecteds_list)>0:
             self.selections_label.setText(str(len(self.selecteds_list))+': '+' '.join(self.selecteds_list))
-            self.write_btn.setEnabled(True)
             #for flickrid in self.selecteds_list:
             #    self.selections_label
         else:
             self.selections_label.setText('')
-            self.write_btn.setEnabled(False)
     
 if __name__ == "__main__":
     
