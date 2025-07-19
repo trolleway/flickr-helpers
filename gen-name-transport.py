@@ -246,6 +246,10 @@ table {
 }
 
 .localphoto { width: 400px;}
+/* mark selected rows */
+    .selected { background-color: orange; }
+    .visited  { background-color: darkgray; }
+    tr { transition: background-color 3.2s ease; }
 
         
         '''
@@ -630,12 +634,25 @@ table {
                     backend = channel.objects.backend;
                 });
 
-                function handleSelectImg(imageId) {
+                function handleSelectImg(button, imageId) {
                     backend.handle_select_img(imageId);
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.add('selected');
                 }
                 
-                function handleSelectImgAppend(imageId) {
+                function handleSelectImgAppend(button, imageId) {
                     backend.handle_select_img_append(imageId);
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.add('selected');
+                }         
+                
+                function decelectImg(imageId) {
+                  const tr = document.getElementById(imageId);
+                  if (!tr) return;
+                  tr.classList.remove('selected');
+                  tr.classList.add('visited');
                 }
             </script>
         </head><body><table>"""
@@ -643,6 +660,10 @@ table {
         html+='</table>'
         html+='<p style="font-face: monospace;">Total: '+str(len(result_list))+'</p>'
         html+='</html>'
+        
+        with open("debug.htm", "w", encoding="utf-8") as f:
+            f.write(html)
+    
         self.browser_main_table.setPage(ExternalLinkPage(self.browser_main_table))
         self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -659,7 +680,7 @@ table {
         QMessageBox.warning(self, "Not found", "Select photo return no results")
     def gen_photo_row(self,photo):
         tr=''
-        print(photo)
+
         image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
         image_url_o = f"{photo['url_o']}"
         geo_text=''
@@ -668,12 +689,11 @@ table {
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
         
-        tr=f'''<tr><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg('{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend('{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
         return tr
 
 
     def select_photo(self, photo_id):
-        print('called select_photo',photo_id)
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
@@ -687,12 +707,19 @@ table {
         self.selections_display_update()
     def deselect_photos(self):
         self.selecteds_list=list()
+        if len(self.selecteds_list)>0:
+
+            for flickrid in self.selecteds_list:
+            
+                js = f"decelectImg('{flickrid}');"
+                self.browser_main_table.page().runJavaScript(js)
+                
         self.selections_display_update()
     def selections_display_update(self):
         if len(self.selecteds_list)>0:
             self.selections_label.setText(str(len(self.selecteds_list))+': '+' '.join(self.selecteds_list))
-            #for flickrid in self.selecteds_list:
-            #    self.selections_label
+            
+
         else:
             self.selections_label.setText('')
     
