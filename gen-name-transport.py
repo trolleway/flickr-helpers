@@ -340,6 +340,8 @@ table {
         self.formtab.addTab(self.create_train_tab(), "train")
         self.formwritefields['automobile']={}
         self.formtab.addTab(self.create_automobile_tab(), "automobile")
+        self.formwritefields['address']={}
+        self.formtab.addTab(self.create_address_tab(), "address")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
      
@@ -393,19 +395,37 @@ table {
     def create_trolleybus_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
-
+        
+        transport='trolleybus'
         for label in ["transport","city","operator", "number", "model","route","street", 'desc',  'more_tags']:
             line_edit = QLineEdit()
             if label=='transport':
-                line_edit.setText('trolleybus')
-            self.formwritefields['trolleybus'][label] = line_edit
+                line_edit.setText(transport)
+            self.formwritefields[transport][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
+            if label=='street':
+                self.geolookup_buttons[transport]=dict()
+                self.geolookup_buttons[transport]['street']=QPushButton("⇪ geolookup_street ⇪")
+                self.geolookup_buttons[transport]['street'].clicked.connect(self.on_geolookup_street)
+                form_layout.addRow(":", self.geolookup_buttons[transport]['street'])
+            if label=='number':
+                self.numlookup_buttons[transport]=dict()
+                self.numlookup_buttons[transport]['number']=QPushButton("⇪ take num from name prefix ⇪")
+                self.numlookup_buttons[transport]['number'].clicked.connect(self.on_numlookup)
+                form_layout.addRow(":", self.numlookup_buttons[transport]['number'])
+            if label=='route':
+                self.routelookup_buttons[transport]=dict()
+                self.routelookup_buttons[transport]['number']=QPushButton("⇪ take route from name prefix ⇪")
+                self.routelookup_buttons[transport]['number'].clicked.connect(self.on_routelookup)
+                form_layout.addRow(":", self.routelookup_buttons[transport]['number'])
+                
         tab.setLayout(form_layout)
         return tab
 
     def create_bus_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
+        transport='bus'
 
         for label in ["transport","city","operator", "number","numberplate", "model","route","street",'desc',   'more_tags']:
             line_edit = QLineEdit()
@@ -413,6 +433,38 @@ table {
                 line_edit.setText('bus')
             self.formwritefields['bus'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
+            if label=='street':
+                self.geolookup_buttons[transport]=dict()
+                self.geolookup_buttons[transport]['street']=QPushButton("⇪ geolookup_street ⇪")
+                self.geolookup_buttons[transport]['street'].clicked.connect(self.on_geolookup_street)
+                form_layout.addRow(":", self.geolookup_buttons[transport]['street'])
+            if label=='number':
+                self.numlookup_buttons[transport]=dict()
+                self.numlookup_buttons[transport]['number']=QPushButton("⇪ take num from name prefix ⇪")
+                self.numlookup_buttons[transport]['number'].clicked.connect(self.on_numlookup)
+                form_layout.addRow(":", self.numlookup_buttons[transport]['number'])
+            if label=='route':
+                self.routelookup_buttons[transport]=dict()
+                self.routelookup_buttons[transport]['number']=QPushButton("⇪ take route from name prefix ⇪")
+                self.routelookup_buttons[transport]['number'].clicked.connect(self.on_routelookup)
+                form_layout.addRow(":", self.routelookup_buttons[transport]['number'])             
+        tab.setLayout(form_layout)
+        return tab    
+
+    def create_address_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["state","city","street", "housenumber",'name','template','addr:full','desc',   'more_tags']:
+            line_edit = QLineEdit()
+            self.formwritefields['address'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+            if label=='template':
+                self.formwritefields['address'][label].setText('{city} {street} {housenumber')
+                addrbuild_button=QPushButton(" assembly address ")
+                addrbuild_button.clicked.connect(self.on_addressassembly)
+                form_layout.addRow(":", addrbuild_button) 
+           
         tab.setLayout(form_layout)
         return tab    
 
@@ -460,7 +512,10 @@ table {
     
         if len(self.changeset)>0:
             for change in self.changeset:
-                self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
+                try:
+                    self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
+                except:
+                    continue
             self.changeset = list()
         else:
             QMessageBox.warning(self, "Invalid data", "Make edits frist")
@@ -511,6 +566,17 @@ table {
                 
                         self.formwritefields[current_tab_name]['route'].setText(route)
                         return
+              
+    def on_addressassembly(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+
+        template=self.formwritefields[current_tab_name]['template'].text()
+        city=self.formwritefields[current_tab_name]['city'].text()
+
+        self.formwritefields[current_tab_name]['addr:full'].setText(city)
+        return
    
                         
     def on_geolookup_street(self):
@@ -642,7 +708,7 @@ table {
             result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=False)
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
-                if 'namegenerated' in photo['tags']:
+                if 'namegenerated' in photo['tags'] and 'noname' not in photo['tags']:
                     continue
                 if tags4query != '':
                     tags4search=list()

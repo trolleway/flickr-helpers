@@ -62,6 +62,10 @@ if args.max_taken_date:
     search_params["max_taken_date"] = args.max_taken_date
 
 search_params["extras"] = 'url_s,url_o,date_taken,tags,geo'
+search_params["per_page"] = 250
+
+
+
 
 
 # Execute search with only provided parameters
@@ -139,17 +143,19 @@ table {
     
     photosbydate = sorted(photos['photos']['photo'], key=lambda x: x["datetaken"], reverse=True)
     
+
+    
     # second pass filter
-    templist = list()
     if args.name_regexp is not None:
         namepattern = re.compile(r'^Moscow.*$')
 
+        templist = list()
         for pic in photosbydate:
             if not bool(namepattern.fullmatch(pic['title'])):
                 continue
             templist.append(pic)
-    photosbydate = templist
-    
+        photosbydate = templist
+  
     for pic in photosbydate:
         geo_text=''
         if pic['latitude']==0: 
