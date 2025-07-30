@@ -24,6 +24,65 @@ from PyQt6.QtCore import QObject, pyqtSlot, QUrl
 import requests
 
 
+import pywikibot
+import requests
+from typing import Optional
+
+class WikidataModel:
+    """
+    Simple Wikidata label fetcher using requests (unauthenticated).
+    Caches results in memory to avoid redundant API calls.
+    """
+    def __init__(self):
+        self.api_url = "https://www.wikidata.org/w/api.php"
+        # cache keys are tuples (wdid, lang)
+        self.cache = {"labels": {}}
+        self.session = requests.Session()
+
+    def get_name(self, wdid: str, lang: str = "en") -> Optional[str]:
+        """
+        Return the label for a given Wikidata Q-ID in the specified language.
+        Returns None if the ID is invalid, the label is missing, or on error.
+        """
+        key = (wdid, lang)
+        # 1) Check cache
+        if key in self.cache["labels"]:
+            return self.cache["labels"][key]
+
+        # 2) Build request parameters
+        params = {
+            "action": "wbgetentities",
+            "ids": wdid,
+            "props": "labels",
+            "languages": lang,
+            "format": "json"
+        }
+
+        # 3) Perform HTTP GET and handle errors
+        try:
+            resp = self.session.get(self.api_url, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as http_err:
+            print(f"[Error] HTTP error fetching {wdid}: {http_err}")
+            return None
+        except ValueError as parse_err:
+            print(f"[Error] JSON parse error for {wdid}: {parse_err}")
+            return None
+
+        # 4) Extract label from JSON
+        label = None
+        entity = data.get("entities", {}).get(wdid, {})
+        labels = entity.get("labels", {})
+        if lang in labels:
+            label = labels[lang].get("value",'')
+
+        # 5) Cache & return
+        self.cache["labels"][key] = label
+        return label
+    
+    
+
 class Backend(QObject):
     imgSelected = pyqtSignal(str)
     @pyqtSlot(str)
@@ -196,7 +255,7 @@ class FlickrBrowser(QWidget):
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.select_photo)
         self.backend.imgSelectedAppend.connect(self.select_photo_append)
-
+        self.wikidata_model = WikidataModel()
 
         self.init_ui()
         self.flickr = self.authenticate_flickr()
@@ -614,18 +673,28 @@ table {
                         url=ngw_url+'/api/feature_layer/identify'
                         request = requests.post(url, json = payload)
                         
-                        print('signal1')
-                        print(request)
-                        print(request.status_code)
+                        wdid=None
+                        text=''
 
-                        if request.status_code == 201:
+                        if request.status_code == 200:
+                            try:
+                                response = request.json()
+                                print(response)
+                                r=response.get(str(ngw_layer))
+                                r=r.get('features')
+                                if r is not None:
+                                    r=r[0]
+                                    r=r.get('fields')
+                                    wdid=r.get('wikidata')
+                                    text = self.wikidata_model.get_name(wdid)
+                                    self.formwritefields[current_tab_name]['street'].setText(text)
+                            except:
+                                self.formwritefields[current_tab_name]['street'].setText('')
+                        else:
+                            self.formwritefields[current_tab_name]['street'].setText('')
 
-                            response = request.json()
-                            print(response)
 
-
-
-                        self.formwritefields[current_tab_name]['street'].setText(img['latitude']+img['longitude'])
+                        
                     
                 #self.formwritefields[current_tab_name]['street'].setText('geoliik')
         

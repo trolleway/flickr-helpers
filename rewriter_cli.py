@@ -332,13 +332,14 @@ table {
             '''
             fn1=record['local']['filepath']
             if 'already_on_flickr' not in record['local']['filepath']:
-                commands.append(f'mv {record['local']['filepath']} '+os.path.join(subdir,os.path.basename(record['local']['filepath']+'<br/>')))
+                commands.append(f'mv {record['local']['filepath']} '+os.path.join(subdir,os.path.basename(record['local']['filepath'])))
             if 'namegenerated' not in record['flickr_search']['tags']:
-                commands2.append(f'''python edit.py {record['flickr_search']['id']} --add-tags "noname" --desc="" <br/>''')
+                commands2.append(f'''python edit.py {record['flickr_search']['id']} --add-tags "noname" --desc="" ''')
             out += row
         out += '</table>'
         out += '<p class="listing">'
         out+='<br/>'.join(commands)
+        out+='<br/>'
         out+='<br/>'.join(commands2)
         
         print(out)
