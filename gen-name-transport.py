@@ -256,10 +256,6 @@ class FlickrBrowser(QWidget):
         self.backend.imgSelected.connect(self.select_photo)
         self.backend.imgSelectedAppend.connect(self.select_photo_append)
         self.wikidata_model = WikidataModel()
-
-        self.init_ui()
-        self.flickr = self.authenticate_flickr()
-        self.flickrimgs=list()
         
         self.css='''        body {
             background-color: #1a1a1a;
@@ -312,6 +308,10 @@ table {
 
         
         '''
+        self.init_ui()
+        self.flickr = self.authenticate_flickr()
+        self.flickrimgs=list()
+
 
     def authenticate_flickr(self):
         flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
@@ -377,7 +377,7 @@ table {
 
         #self.browser_main_table.page().settings().setAttribute(QWebEnginePage.WebAttribute.FocusOnNavigationEnabled, False)
         middlelayout.addWidget(self.browser_main_table)
-        self.browser_main_table.setHtml('''<html><body><h1>wait for query</h1>''', QUrl("qrc:/"))
+        self.browser_main_table.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for query</h1>""", QUrl("qrc:/"))
        
         # texts form
         self.formtab=QTabWidget()
@@ -827,9 +827,10 @@ table {
                 }
             </script>
         </head><body><table>"""
+        html+='<p style="font-face: monospace;">Total: '+str(len(result_list))+'</p>'
         html+=trs
         html+='</table>'
-        html+='<p style="font-face: monospace;">Total: '+str(len(result_list))+'</p>'
+
         html+='</html>'
         
         with open("debug.htm", "w", encoding="utf-8") as f:
