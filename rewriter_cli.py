@@ -103,16 +103,21 @@ def find_filckr_already_uploadeds(localphotos: List[Dict], flickrimgs: List[Dict
         #print(matched_flickrimgs)
         photo["candidated_flickrimgs"] = matched_flickrimgs
         flickr_geo = False
+        size_ok = False
         if len(matched_flickrimgs) == 0:
             photo["candidated_text"]='no match, do upload'
+        
         
         if len(matched_flickrimgs) == 1:
             photo["candidated_text"]=''
             link='<a href="https://www.flickr.com/photos/'+matched_flickrimgs[0].get('owner')+'/'+matched_flickrimgs[0].get('id')+'/in/datetaken/">flickr</a>'
             if matched_flickrimgs[0].get('longitude',0)!=0:
                 flickr_geo = True
+            if int(matched_flickrimgs[0].get('o_height',0))>200:
+                size_ok = True
             
-            if flickr_geo == True:
+            
+            if flickr_geo and size_ok:
                 photo["candidated_text"]='1 found '
                 record=dict()
                 record['local']=photo
@@ -169,6 +174,7 @@ def flickr_search_by_dateslist(search_params,local_photos_dates):
     for day in days:
         search_params['min_taken_date']=day.strftime("%Y-%m-%d")
         search_params['max_taken_date']=(day + timedelta(days=1)).strftime("%Y-%m-%d")
+  
 
         sr = flickr.photos.search(**search_params)
         srp=sr['photos']['photo']
@@ -210,7 +216,7 @@ if args.interval == 'day':
 if args.max_taken_date:
     search_params["max_taken_date"] = args.max_taken_date
 
-search_params["extras"] = 'url_s,url_o,date_taken,tags,geo'
+search_params["extras"] = 'url_s,url_o,date_taken,tags,geo,o_dims'
 
 
 
@@ -298,11 +304,16 @@ table {
     
     localphotosbydate = sorted(localphotos, key=lambda x: x["simplified_datetime"], reverse=False)
     
+    
     for pic in localphotosbydate:
+        tl=''
+        if type(pic.get('candidated_flickrimgs')) is list:
+            for e in pic.get('candidated_flickrimgs'):
+                tl+=f'''<a href="https://www.flickr.com/photos/{e['owner']}/{e['id']}/in/datetaken/">flickr</a>'''
         row=f'''<tr><td><img src="{pic['filepath']}" class="localphoto"></td>
         <td>{pic['filename']}</td>
         <td>{pic['simplified_datetime']}</td>
-        <td>{pic.get('candidated_flickrimgs','')}</td>
+        <td>{tl}<br/>{pic.get('candidated_flickrimgs','')}</td>
         <td>{pic.get('candidated_text','')}</td>
         <td>{pic.get('editurl','')}</td>
         \n'''
@@ -333,7 +344,7 @@ table {
             fn1=record['local']['filepath']
             if 'already_on_flickr' not in record['local']['filepath']:
                 commands.append(f'mv {record['local']['filepath']} '+os.path.join(subdir,os.path.basename(record['local']['filepath'])))
-            if 'namegenerated' not in record['flickr_search']['tags']:
+            if 'namegenerated' not in record['flickr_search']['tags'] and 'noname' not in record['flickr_search']['tags']:
                 commands2.append(f'''python edit.py {record['flickr_search']['id']} --add-tags "noname" --desc="" ''')
             out += row
         out += '</table>'
@@ -341,6 +352,8 @@ table {
         out+='<br/>'.join(commands)
         out+='<br/>'
         out+='<br/>'.join(commands2)
+        out+='<br/>'
+        out+='<br/>'
         
         print(out)
 
