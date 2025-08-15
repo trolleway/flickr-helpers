@@ -3,3 +3,4 @@ argparse
 PyQT6
 PyQt6-WebEngine
 geopy
+transliterate

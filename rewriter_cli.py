@@ -175,11 +175,19 @@ def flickr_search_by_dateslist(search_params,local_photos_dates):
         search_params['min_taken_date']=day.strftime("%Y-%m-%d")
         search_params['max_taken_date']=(day + timedelta(days=1)).strftime("%Y-%m-%d")
   
-
-        sr = flickr.photos.search(**search_params)
-        srp=sr['photos']['photo']
-        #print(flickrresult)
-        flickrresult['photos']['photo'] += srp
+        gonextpage=True
+        page_counter=0
+        while(gonextpage):
+            page_counter = page_counter+1
+            search_params['page']=page_counter
+            
+            sr = flickr.photos.search(**search_params)
+            srp=sr['photos']['photo']
+            flickrresult['photos']['photo'] += srp
+            gonextpage=False
+            
+            if len(srp)>0 and sr['photos']['pages']>page_counter:
+                gonextpage=True
 
     return flickrresult
 
@@ -229,7 +237,7 @@ if ('min_taken_date' in search_params and 'max_taken_date' in search_params):
 else:
     print('process all dates')
     photos = flickr_search_by_dateslist(search_params,local_photos_dates)
-
+print(f"{len(photos)} get from search on flickr")
 photosbydate = sorted(photos['photos']['photo'], key=lambda x: x["datetaken"], reverse=False)
 localphotos, flickr2del, flickr_level2 = find_filckr_already_uploadeds(localphotos,photosbydate)
 

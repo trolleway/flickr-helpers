@@ -30,6 +30,8 @@ from geopy.extra.rate_limiter import RateLimiter
 import pywikibot
 import requests
 from typing import Optional
+import re
+from transliterate import translit, get_available_language_codes
 
 class WikidataModel:
     """
@@ -152,22 +154,16 @@ class Model():
         new_tags = str(textsdict.get('tags',''))
             
         if textsdict.get('more_tags','') != '':
-            new_tags += ' '
+            new_tags += ', '
             new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
+        if new_tags[0]==',': new_tags=new_tags[1:]
             
-        new_tags += ' namegenerated'
-        olddesc=info['photo']['description']['_content']
-        newdesc=olddesc
-        if olddesc.strip()=='OLYMPUS DIGITAL CAMERA':
-            olddesc=''
-        if olddesc.strip()=='' and street != '':
-            newdesc = street
-        if desc != '': newdesc = desc + "\n"+street
+        new_tags += ', namegenerated'
 
         flickr.photos.setMeta(
             photo_id=photo_id,
             title=newname,
-            description=newdesc
+            description = desc
         )
 
         # Step 4: Update tags
@@ -571,7 +567,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","dest_coordinates","lang_int","lang_loc",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
+        for label in ["preset","dest_coordinates","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -581,13 +577,12 @@ table {
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_street)
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
-                form_layout.addRow(":", addrbuild_button) 
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
-        self.formwritefields['address']['name_template'].setText('{city_int} {road_int} {house_number_int}')
-        self.formwritefields['address']['desc_template'].setText('{city_loc} {road_loc} {house_number_loc}')
-        self.formwritefields['address']['tags_template'].setText('{road_int},{city_int},{country_int},{suburb_int}')
+        self.formwritefields['address']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
+        self.formwritefields['address']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
+        self.formwritefields['address']['tags_template'].setText('{venue_int},{road_int},{city_int},{country_int},{suburb_int},building')
         tab.setLayout(form_layout)
         return tab    
 
@@ -636,7 +631,7 @@ table {
         if len(self.changeset)>0:
             for change in self.changeset:
                 try:
-                    if change["preset"]=='address':
+                    if change['textsdict']["preset"]=='address':
                         self.model.address_image_flickr_update(self.flickr, change['id'], change['textsdict'])       
                     else:
                         self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
@@ -735,10 +730,17 @@ table {
                         
                         nominatim_keys=['country','state','city','suburb','road','house_number']
                         for key in nominatim_keys:
-                        
-                            replaces['int'][key]=geocoderesults['int'].raw.get('address',{}).get(key,'')
+                            
                             replaces['loc'][key]=geocoderesults['loc'].raw.get('address',{}).get(key,'')
-
+                            
+                            
+                            if lang_loc in get_available_language_codes():
+                                replaces['int'][key]=translit(geocoderesults['int'].raw.get('address',{}).get(key,''),lang_loc,reversed=True)
+                            else:
+                                replaces['int'][key]=geocoderesults['int'].raw.get('address',{}).get(key,'')
+                        
+                        # venue
+                        replaces['int']['venue']=self.formwritefields[current_tab_name]['venue_int'].text()
                         
                         # name
                         fmt=self.formwritefields[current_tab_name]['name_template'].text()
@@ -747,6 +749,8 @@ table {
                             txt = txt.replace('{'+fld+'_int}',val)
                         for fld,val in replaces['loc'].items():
                             txt = txt.replace('{'+fld+'_loc}',val)
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt)
                         self.formwritefields[current_tab_name]['name'].setText(txt)
                         
                         # desc
@@ -756,11 +760,15 @@ table {
                             txt = txt.replace('{'+fld+'_int}',val)
                         for fld,val in replaces['loc'].items():
                             txt = txt.replace('{'+fld+'_loc}',val)
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt)
                         self.formwritefields[current_tab_name]['desc'].setText(txt)
                         
                         # tags
                         fmt=self.formwritefields[current_tab_name]['tags_template'].text()
                         txt=fmt
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt)
                         for fld,val in replaces['int'].items():
                             txt = txt.replace('{'+fld+'_int}',self.escape4flickr_tag(val))
                         for fld,val in replaces['loc'].items():
