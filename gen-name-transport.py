@@ -3,7 +3,7 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem
+    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem, QFileDialog
     
 )
 from PyQt6.QtGui import QPixmap
@@ -32,6 +32,10 @@ import requests
 from typing import Optional
 import re
 from transliterate import translit, get_available_language_codes
+import os
+from PIL import Image
+from PIL.ExifTags import TAGS
+
 
 class WikidataModel:
     """
@@ -241,6 +245,9 @@ class Model():
                     new_tags += ' "'+str(model)+'"'
                 else:    
                     new_tags += ' '+str(model)
+            if (model is not None and len(model)>0) and (brand is not None and len(brand)>0):
+                new_tags += ' "'+str(brand)+'"'
+                new_tags += ' "'+str(brand)+' ' +str(model) +'"'
             
             if operator != '':
                 new_tags += ' "'+str(operator)+'"'
@@ -360,9 +367,14 @@ table {
 
         
         '''
+        self.nominatim_keys=['country','state','county','city','village','hamlet','town','suburb','neighbourhood','road','house_number']
+        self.gps_dest_folder = None
         self.init_ui()
         self.flickr = self.authenticate_flickr()
         self.flickrimgs=list()
+        
+        
+        
 
 
     def authenticate_flickr(self):
@@ -386,7 +398,14 @@ table {
     def init_ui(self):
         layout = QVBoxLayout()
         middlelayout = QHBoxLayout()
+        self.formcontainers = dict()
+        self.formlayouts = dict()
 
+        # search panel
+        self.search_formcontainer=QGroupBox('Search images on flickr')
+        layout.addWidget(self.search_formcontainer)
+        self.search_formcontainer_layout = QHBoxLayout()
+        self.search_formcontainer.setLayout(self.search_formcontainer_layout)
         # Input fields
         self.inputs_search = {}
         fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","days","per_page"]
@@ -399,23 +418,35 @@ table {
             self.inputs_search[field] = edit
             row.addWidget(label)
             row.addWidget(edit)
-            layout.addLayout(row)
+            self.search_formcontainer_layout.addLayout(row)
 
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
         #self.inputs_search["per_page"].setText(str(50))
-        self.inputs_search["days"].setInputMask("00") 
+        self.inputs_search["days"].setInputMask("99") 
         #self.inputs_search["days"].setPlaceholderText("number")
         #self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
         self.search_btn.clicked.connect(self.search_photos)
-        layout.addWidget(self.search_btn)
+        self.search_formcontainer_layout.addWidget(self.search_btn)
+        
+        # select folder on disk to get GPS Destination
+        self.formcontainers['gpsdest'] = QGroupBox('Select folder with source image files for get destination coordinates')
+        self.formlayouts['gpsdest'] = QHBoxLayout()
+        self.formcontainers['gpsdest'].setLayout(self.formlayouts['gpsdest'])
+        
+        layout.addWidget(self.formcontainers['gpsdest'])
+        # new code: create the button
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self.select_gpsdest_directory)
+        self.formlayouts['gpsdest'].addWidget(browse_btn)
         
         #selection panel
-        self.selectedimgs_formcontainer=QGroupBox('Selection')
+        self.selectedimgs_formcontainer=QGroupBox('Selected images')
         layout.addWidget(self.selectedimgs_formcontainer)
         self.selectedimgs_formcontainer_layout = QHBoxLayout()
         self.selectedimgs_formcontainer.setLayout(self.selectedimgs_formcontainer_layout)
         self.selections_label=QLabel()
+        self.selections_label.setWordWrap(True)
         self.selectedimgs_formcontainer_layout.addWidget(self.selections_label)
         self.deselect_photos_button = QPushButton("Deselect all")
         self.deselect_photos_button.clicked.connect(self.deselect_photos)
@@ -470,7 +501,102 @@ table {
 
         
         self.setLayout(layout)
+        
+    def select_gpsdest_directory(self):
+        # Show only directories
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Choose GPS-destination folder",
+            "",                              # starting directory
+            QFileDialog.Option.ShowDirsOnly  # only folders
+        )
+        if directory:
+            # store the path in a self variable
+            self.gps_dest_folder = directory
+            # (optional) print or update UI
+            print("Chosen folder:", self.gps_dest_folder)
+            
+        assert os.path.isdir(self.gps_dest_folder)
+        self.read_images_dest_from_dir(self.gps_dest_folder)
+        
+    def read_images_dest_from_dir(self,path)->dict:    
+        # read exif from all files in folder
+        # get gps dest coordinates, if exist
+        # save to dict with key is timestamp with stripped timezone
+        # if two images taken in same second - do not save both.
+        
+        
+        
+        def get_photos_with_timestamps(directory: str) -> list[dict]:
+            from PIL import Image
+            from PIL.ExifTags import TAGS, GPSTAGS
+            from dateutil import parser
 
+            def _dms_to_dd(dms, ref):
+                """
+                Convert degree/minute/second tuple to decimal degrees,
+                flipping sign for South or West.
+                """
+                deg = dms[0][0] / dms[0][1]
+                min_ = dms[1][0] / dms[1][1]
+                sec = dms[2][0] / dms[2][1]
+                dd = deg + (min_ / 60.0) + (sec / 3600.0)
+                if ref in ('S', 'W'):
+                    dd = -dd
+                return dd
+
+            results = []
+            for filename in os.listdir(directory):
+                filepath = os.path.join(directory, filename)
+                img = Image.open(filepath)
+                exif = img._getexif() or {}
+
+                dt = None
+                gps_dest_lat = None
+                gps_dest_lon = None
+
+                # First pass: find DateTimeOriginal and raw GPSInfo block
+                raw_gps = None
+                for tag_id, value in exif.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    if tag == 'DateTimeOriginal':
+                        # replace only first two colons so parser accepts YYYY-MM-DD HH:MM:SS
+                        dt = parser.parse(value.replace(":", "-", 2))
+                        dt = dt.replace(microsecond=0)
+                        if dt.tzinfo:
+                            dt = dt.replace(tzinfo=None)
+
+            
+                    elif tag == 'GPSInfo':
+                        raw_gps = value
+
+                # Second pass: decode GPS tags and pull out destination coords
+                if raw_gps:
+                    gps = {}
+                    for t, val in raw_gps.items():
+                        key = GPSTAGS.get(t, t)
+                        gps[key] = val
+
+                    if 'GPSDestLatitude' in gps and 'GPSDestLongitude' in gps:
+                        lat_ref = gps.get('GPSDestLatitudeRef', 'N')
+                        lon_ref = gps.get('GPSDestLongitudeRef', 'E')
+                        gps_dest_lat = _dms_to_dd(gps['GPSDestLatitude'], lat_ref)
+                        gps_dest_lon = _dms_to_dd(gps['GPSDestLongitude'], lon_ref)
+
+                
+                
+                if dt and (gps_dest_lat is not None and gps_dest_lon is not None):
+                    results.append({
+                        "filepath": filepath,
+                        "filename": filename,
+                        "datetime": dt,
+                        "gps_dest_latitude": gps_dest_lat,
+                        "gps_dest_longitude": gps_dest_lon
+                    })
+
+        data = get_photos_with_timestamps(path)
+        
+        
     def create_tram_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
@@ -575,14 +701,19 @@ table {
                 
                 self.geocode_rev_buttons['address']=dict()
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
-                self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
         self.formwritefields['address']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
         self.formwritefields['address']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
-        self.formwritefields['address']['tags_template'].setText('{venue_int},{road_int},{city_int},{country_int},{suburb_int},building')
+        self.formwritefields['address']['tags_template'].setText('{venue_int},{road_int},{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
+        
+        
+        nominatim_keys_list = QLabel()
+        nominatim_keys_list.setText(', '.join(self.nominatim_keys))
+        form_layout.addRow('nominatim keys list: ',nominatim_keys_list)
         tab.setLayout(form_layout)
         return tab    
 
@@ -590,12 +721,19 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","city","brand", "numberplate", "model","street", 'desc',  'more_tags']:
+        for label in ["preset","city","brand", "numberplate", "model","street", 'desc',  'more_tags','dest_coordinates','lang_loc','lang_int']:
             line_edit = QLineEdit()
             if label=="preset":
                 line_edit.setText('automobile')
             self.formwritefields['automobile'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
+            if label=='street':
+                self.geocode_rev_buttons['automobile']=dict()
+                self.geocode_rev_buttons['automobile']=QPushButton("⇪ Street from Nominatim query ⇪")
+                self.geocode_rev_buttons['automobile'].clicked.connect(self.on_geocode_reverse_street)
+                form_layout.addRow(":", self.geocode_rev_buttons['automobile'])
+        self.formwritefields['automobile']['lang_int'].setText('en')
+        self.formwritefields['automobile']['lang_loc'].setText('ru')
         tab.setLayout(form_layout)
         return tab  
 
@@ -670,7 +808,7 @@ table {
                     if img['id'] == flickrid:                      
                         import re
 
-                        regex = r"_r(\d+)(?:_[^.]+)?$"
+                        regex = r"_(?:r|м)(\d+)(?:_[^.]+)?$"
                         test_str = img['title']
                         route=''
 
@@ -693,6 +831,45 @@ table {
             text = '"'+text+'"'
         return text
     def on_geocode_reverse_street(self):
+        geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)   
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        
+                        # lookup
+                        lat = float(img['latitude'])
+                        lon = float(img['longitude'])
+                        coords = (lat,lon)
+                        dest_coords_str = self.formwritefields[current_tab_name]['dest_coordinates'].text().strip()
+                        if dest_coords_str != '' and ',' in dest_coords_str: 
+                            coords = dest_coords_str
+                        
+                        lang_loc = self.formwritefields[current_tab_name]['lang_loc'].text()
+                        lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
+                        
+                        geocoderesults={}
+                        try:
+                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True)
+                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True)
+                        except:
+                            return
+                        if not geocoderesults['loc']:
+                            return                        
+                        if not geocoderesults['int']:
+                            return
+                        
+                        txt = geocoderesults['int'].raw.get('address',{}).get('road','')
+                        txt=translit(txt,lang_loc,reversed=True).replace("'",'')
+
+                        self.formwritefields[current_tab_name]['street'].setText(txt)
+                        
+                        
+                        
+                        
+    def on_geocode_reverse_address(self):
         # Configure geocoder with 1 req/sec limit
         geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
         geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.2)
@@ -719,8 +896,11 @@ table {
                         lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
                         
                         geocoderesults={}
-                        geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True)
-                        geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True)
+                        try:
+                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True)
+                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True)
+                        except:
+                            return
                         if not geocoderesults['loc']:
                             return                        
                         if not geocoderesults['int']:
@@ -728,14 +908,15 @@ table {
                         
                         replaces={'int':{},'loc':{}}
                         
-                        nominatim_keys=['country','state','city','suburb','road','house_number']
-                        for key in nominatim_keys:
+                        
+                        for key in self.nominatim_keys:
                             
                             replaces['loc'][key]=geocoderesults['loc'].raw.get('address',{}).get(key,'')
                             
                             
                             if lang_loc in get_available_language_codes():
                                 replaces['int'][key]=translit(geocoderesults['int'].raw.get('address',{}).get(key,''),lang_loc,reversed=True)
+                                replaces['int'][key] = replaces['int'][key].replace("'",'')
                             else:
                                 replaces['int'][key]=geocoderesults['int'].raw.get('address',{}).get(key,'')
                         
@@ -768,11 +949,13 @@ table {
                         fmt=self.formwritefields[current_tab_name]['tags_template'].text()
                         txt=fmt
                         txt = txt.strip()
-                        txt = re.sub(' +', ' ', txt)
+                        txt = re.sub(' +', ' ', txt) #merge multiple space to single space
+                        
                         for fld,val in replaces['int'].items():
                             txt = txt.replace('{'+fld+'_int}',self.escape4flickr_tag(val))
                         for fld,val in replaces['loc'].items():
                             txt = txt.replace('{'+fld+'_loc}',self.escape4flickr_tag(val))
+                        txt = re.sub(',+', ',', txt) #merge multiple , to single ,
                         self.formwritefields[current_tab_name]['tags'].setText(txt)
                         
         
@@ -839,7 +1022,7 @@ table {
         self.browser_main_table.setHtml('''<html><body><h1>wait for query execute</h1>''', QUrl("qrc:/"))
         pass
     
-    def search_photos(self):
+    def search_photos(self,SORTMODE = 'datetaken'):
         #self.get_photos_from_album('72177720327428694')
         #return
         self.reset_search_results()
@@ -908,9 +1091,14 @@ table {
         if len(result_list)==0:
             self.info_search_noresults()
         else:
-            #result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
-            result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=True)
-            #result_list = sorted(result_list, key=lambda x: float(x["longitude"]), reverse=False)
+            if SORTMODE == 'datetaken':
+                result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+            elif SORTMODE == 'lon':
+                result_list = sorted(result_list, key=lambda x: float(x["longitude"]), reverse=False)
+            elif SORTMODE == 'lat':
+                result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=True)
+            else:
+                result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
@@ -994,6 +1182,8 @@ table {
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        if photo['latitude']!=0:
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom=18&addressdetails=1">Rev geocode</a>'''
         
         tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
         return tr
