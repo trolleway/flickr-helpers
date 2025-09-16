@@ -369,9 +369,11 @@ table {
         '''
         self.nominatim_keys=['country','state','county','city','village','hamlet','town','suburb','neighbourhood','road','house_number']
         self.gps_dest_folder = None
+        self.images_coordinates_from_local_folder = None
         self.init_ui()
         self.flickr = self.authenticate_flickr()
         self.flickrimgs=list()
+        
         
         
         
@@ -472,6 +474,7 @@ table {
         self.geolookup_buttons = {}
         self.numlookup_buttons = {}
         self.geocode_rev_buttons = {}
+        self.loaddestcoords_buttons = {}
         self.formwritefields = {}
         self.formwritefields['tram']={}
         self.formtab.addTab(self.create_tram_tab(), "tram")
@@ -506,7 +509,7 @@ table {
         # Show only directories
         directory = QFileDialog.getExistingDirectory(
             self,
-            "Choose GPS-destination folder",
+            "Choose folder with original images with dest coordinates",
             "",                              # starting directory
             QFileDialog.Option.ShowDirsOnly  # only folders
         )
@@ -517,85 +520,121 @@ table {
             print("Chosen folder:", self.gps_dest_folder)
             
         assert os.path.isdir(self.gps_dest_folder)
-        self.read_images_dest_from_dir(self.gps_dest_folder)
+        self.images_coordinates_from_local_folder = self.read_images_dest_from_dir(self.gps_dest_folder)
+        pass
+
         
-    def read_images_dest_from_dir(self,path)->dict:    
+        
+    def read_images_dest_from_dir(self,directory: str) -> list[dict]:
         # read exif from all files in folder
         # get gps dest coordinates, if exist
         # save to dict with key is timestamp with stripped timezone
         # if two images taken in same second - do not save both.
+    
+        from PIL import Image
+        from PIL.ExifTags import TAGS, GPSTAGS
+        from dateutil import parser
+
+        def _dms_to_dd(dms, ref):
+            """
+            Convert GPS coordinates from DMS to decimal degrees.
+
+            Args:
+                dms: sequence of three elements (deg, min, sec). Each element can be:
+                    - a float or int
+                    - a rational-like object with .numerator and .denominator
+                ref: hemisphere reference, one of 'N', 'S', 'E', 'W'
+
+            Returns:
+                float: decimal degrees (negative for 'S' or 'W')
+            """
+            def to_float(x):
+                # handle rational-like objects
+                if hasattr(x, "numerator") and hasattr(x, "denominator"):
+                    return x.numerator / x.denominator
+                # fallback for float/int or anything else castable
+                return float(x)
+
+            deg, minutes, seconds = map(to_float, dms)
+            dd = deg + minutes / 60.0 + seconds / 3600.0
+
+            return -dd if ref in ("S", "W") else dd
+
+        from dateutil import parser
+        records = []
+        for filename in os.listdir(directory):
+            filepath = os.path.join(directory, filename)
+            img = Image.open(filepath)
+            exif = img._getexif() or {}
+
+            dt = None
+            gps_dest_lat = None
+            gps_dest_lon = None
+            gps_lat = None
+            gps_lon = None
+
+            # First pass: find DateTimeOriginal and raw GPSInfo block
+            raw_gps = None
+            for tag_id, value in exif.items():
+                tag = TAGS.get(tag_id, tag_id)
+                if tag == 'DateTimeOriginal':
+                    # replace only first two colons so parser accepts YYYY-MM-DD HH:MM:SS
+                    dt = parser.parse(value.replace(":", "-", 2))
+                    dt = dt.replace(microsecond=0)
+                    if dt.tzinfo:
+                        dt = dt.replace(tzinfo=None)
+
         
-        
-        
-        def get_photos_with_timestamps(directory: str) -> list[dict]:
-            from PIL import Image
-            from PIL.ExifTags import TAGS, GPSTAGS
-            from dateutil import parser
+                elif tag == 'GPSInfo':
+                    raw_gps = value
 
-            def _dms_to_dd(dms, ref):
-                """
-                Convert degree/minute/second tuple to decimal degrees,
-                flipping sign for South or West.
-                """
-                deg = dms[0][0] / dms[0][1]
-                min_ = dms[1][0] / dms[1][1]
-                sec = dms[2][0] / dms[2][1]
-                dd = deg + (min_ / 60.0) + (sec / 3600.0)
-                if ref in ('S', 'W'):
-                    dd = -dd
-                return dd
+            # Second pass: decode GPS tags and pull out destination coords
+            if raw_gps:
+                gps = {}
+                for t, val in raw_gps.items():
+                    key = GPSTAGS.get(t, t)
+                    gps[key] = val
 
-            results = []
-            for filename in os.listdir(directory):
-                filepath = os.path.join(directory, filename)
-                img = Image.open(filepath)
-                exif = img._getexif() or {}
+                if 'GPSDestLatitude' in gps and 'GPSDestLongitude' in gps:
+                    lat_ref = gps.get('GPSDestLatitudeRef', 'N')
+                    lon_ref = gps.get('GPSDestLongitudeRef', 'E')
+                    gps_dest_lat = _dms_to_dd(gps['GPSDestLatitude'], lat_ref)
+                    gps_dest_lon = _dms_to_dd(gps['GPSDestLongitude'], lon_ref)
 
-                dt = None
-                gps_dest_lat = None
-                gps_dest_lon = None
-
-                # First pass: find DateTimeOriginal and raw GPSInfo block
-                raw_gps = None
-                for tag_id, value in exif.items():
-                    tag = TAGS.get(tag_id, tag_id)
-                    if tag == 'DateTimeOriginal':
-                        # replace only first two colons so parser accepts YYYY-MM-DD HH:MM:SS
-                        dt = parser.parse(value.replace(":", "-", 2))
-                        dt = dt.replace(microsecond=0)
-                        if dt.tzinfo:
-                            dt = dt.replace(tzinfo=None)
+                if 'GPSLatitude' in gps and 'GPSLongitude' in gps:
+                    lat_ref = gps.get('GPSLatitudeRef', 'N')
+                    lon_ref = gps.get('GPSLongitudeRef', 'E')
+                    gps_lat = _dms_to_dd(gps['GPSLatitude'], lat_ref)
+                    gps_lon = _dms_to_dd(gps['GPSLongitude'], lon_ref)
 
             
-                    elif tag == 'GPSInfo':
-                        raw_gps = value
-
-                # Second pass: decode GPS tags and pull out destination coords
-                if raw_gps:
-                    gps = {}
-                    for t, val in raw_gps.items():
-                        key = GPSTAGS.get(t, t)
-                        gps[key] = val
-
-                    if 'GPSDestLatitude' in gps and 'GPSDestLongitude' in gps:
-                        lat_ref = gps.get('GPSDestLatitudeRef', 'N')
-                        lon_ref = gps.get('GPSDestLongitudeRef', 'E')
-                        gps_dest_lat = _dms_to_dd(gps['GPSDestLatitude'], lat_ref)
-                        gps_dest_lon = _dms_to_dd(gps['GPSDestLongitude'], lon_ref)
-
+            record = {}
+            record['filepath'] = filepath
+            record['filename'] = filename
+            record['datetime'] = dt
+            if gps_dest_lat is not None:
+                record["gps_dest_latitude"] = gps_dest_lat
+            if gps_dest_lon is not None:
+                record["gps_dest_longitude"] = gps_dest_lon
+            if gps_lat is not None:
+                record["gps_latitude"] = gps_lat
+            if gps_lon is not None:
+                record["gps_longitude"] = gps_lon    
                 
-                
-                if dt and (gps_dest_lat is not None and gps_dest_lon is not None):
-                    results.append({
-                        "filepath": filepath,
-                        "filename": filename,
-                        "datetime": dt,
-                        "gps_dest_latitude": gps_dest_lat,
-                        "gps_dest_longitude": gps_dest_lon
-                    })
+            if dt and (gps_dest_lat is not None and gps_dest_lon is not None):
+                records.append(record)
+        # delete records with non-unique datetime
+        # if two images taken in same second - no keep it coordinates, it is too complicated
+        import collections
+        dt_counts = collections.Counter(rec['datetime'] for rec in records)
+        # 2. Фильтруем: оставляем только записи, у которых dt встречается ровно 1 раз
+        filtered = [rec for rec in records if dt_counts[rec['datetime']] == 1]
+        records = filtered
+        del filtered
+        records_by_datetime = { rec['datetime']: rec for rec in records }
+        return records_by_datetime
 
-        data = get_photos_with_timestamps(path)
-        
+
         
     def create_tram_tab(self):
         tab = QWidget()
@@ -699,10 +738,14 @@ table {
             form_layout.addRow(label.capitalize() + ":", line_edit)
             if label=='name':
                 
-                self.geocode_rev_buttons['address']=dict()
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
+            if label=='dest_coordinates':
+                self.loaddestcoords_buttons['address']=QPushButton("⇪ take destination coordinates from image originals ⇪")
+                self.loaddestcoords_buttons['address'].clicked.connect(self.on_load_dest_coord)
+                form_layout.addRow(":", self.loaddestcoords_buttons['address'])
+                
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
@@ -830,6 +873,32 @@ table {
         if ' ' in text:
             text = '"'+text+'"'
         return text
+    
+    def on_load_dest_coord(self):
+        from dateutil import parser
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        #dt = parser.parse(img.get('datetaken').replace(":", "-", 2))
+                        dt = parser.parse(img.get('datetaken'))
+                        dt = dt.replace(microsecond=0)
+                        if dt.tzinfo:
+                            dt = dt.replace(tzinfo=None)
+                        if self.images_coordinates_from_local_folder is None:
+                            self.formwritefields[current_tab_name]['dest_coordinates'].setText('no loaded folder')
+                            return
+                        source_image_record = self.images_coordinates_from_local_folder.get(dt)
+                        if source_image_record is not None:
+                            if 'gps_dest_latitude' in  source_image_record and 'gps_dest_longitude' in source_image_record: 
+                                self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{source_image_record['gps_dest_latitude']} {source_image_record['gps_dest_longitude']}")
+                        return
+           
+           
     def on_geocode_reverse_street(self):
         geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
         current_tab_index = self.formtab.currentIndex()
