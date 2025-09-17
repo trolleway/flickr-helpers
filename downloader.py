@@ -82,7 +82,7 @@ def main():
         i=i+1
         if 'url_o' in photo:
             tds=photo['datetaken'].replace(':','')
-            filepath = os.path.join(args.destination, f"{tds}-{photo['id']}.jpg")
+            filepath = os.path.join(args.destination, f"{tds}_flickr{photo['id']}.jpg")
             print(f'{i} / {total}')
             if 'posted' in photo['tags']:
                 print('tagged as posted, skip '+photo['url_o']+ 'try to remove if already downloaded')
