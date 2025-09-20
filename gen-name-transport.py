@@ -564,65 +564,68 @@ table {
         records = []
         for filename in os.listdir(directory):
             filepath = os.path.join(directory, filename)
-            img = Image.open(filepath)
-            exif = img._getexif() or {}
+            try:
+                img = Image.open(filepath)
+                exif = img._getexif() or {}
 
-            dt = None
-            gps_dest_lat = None
-            gps_dest_lon = None
-            gps_lat = None
-            gps_lon = None
+                dt = None
+                gps_dest_lat = None
+                gps_dest_lon = None
+                gps_lat = None
+                gps_lon = None
 
-            # First pass: find DateTimeOriginal and raw GPSInfo block
-            raw_gps = None
-            for tag_id, value in exif.items():
-                tag = TAGS.get(tag_id, tag_id)
-                if tag == 'DateTimeOriginal':
-                    # replace only first two colons so parser accepts YYYY-MM-DD HH:MM:SS
-                    dt = parser.parse(value.replace(":", "-", 2))
-                    dt = dt.replace(microsecond=0)
-                    if dt.tzinfo:
-                        dt = dt.replace(tzinfo=None)
-
-        
-                elif tag == 'GPSInfo':
-                    raw_gps = value
-
-            # Second pass: decode GPS tags and pull out destination coords
-            if raw_gps:
-                gps = {}
-                for t, val in raw_gps.items():
-                    key = GPSTAGS.get(t, t)
-                    gps[key] = val
-
-                if 'GPSDestLatitude' in gps and 'GPSDestLongitude' in gps:
-                    lat_ref = gps.get('GPSDestLatitudeRef', 'N')
-                    lon_ref = gps.get('GPSDestLongitudeRef', 'E')
-                    gps_dest_lat = _dms_to_dd(gps['GPSDestLatitude'], lat_ref)
-                    gps_dest_lon = _dms_to_dd(gps['GPSDestLongitude'], lon_ref)
-
-                if 'GPSLatitude' in gps and 'GPSLongitude' in gps:
-                    lat_ref = gps.get('GPSLatitudeRef', 'N')
-                    lon_ref = gps.get('GPSLongitudeRef', 'E')
-                    gps_lat = _dms_to_dd(gps['GPSLatitude'], lat_ref)
-                    gps_lon = _dms_to_dd(gps['GPSLongitude'], lon_ref)
+                # First pass: find DateTimeOriginal and raw GPSInfo block
+                raw_gps = None
+                for tag_id, value in exif.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    if tag == 'DateTimeOriginal':
+                        # replace only first two colons so parser accepts YYYY-MM-DD HH:MM:SS
+                        dt = parser.parse(value.replace(":", "-", 2))
+                        dt = dt.replace(microsecond=0)
+                        if dt.tzinfo:
+                            dt = dt.replace(tzinfo=None)
 
             
-            record = {}
-            record['filepath'] = filepath
-            record['filename'] = filename
-            record['datetime'] = dt
-            if gps_dest_lat is not None:
-                record["gps_dest_latitude"] = gps_dest_lat
-            if gps_dest_lon is not None:
-                record["gps_dest_longitude"] = gps_dest_lon
-            if gps_lat is not None:
-                record["gps_latitude"] = gps_lat
-            if gps_lon is not None:
-                record["gps_longitude"] = gps_lon    
+                    elif tag == 'GPSInfo':
+                        raw_gps = value
+
+                # Second pass: decode GPS tags and pull out destination coords
+                if raw_gps:
+                    gps = {}
+                    for t, val in raw_gps.items():
+                        key = GPSTAGS.get(t, t)
+                        gps[key] = val
+
+                    if 'GPSDestLatitude' in gps and 'GPSDestLongitude' in gps:
+                        lat_ref = gps.get('GPSDestLatitudeRef', 'N')
+                        lon_ref = gps.get('GPSDestLongitudeRef', 'E')
+                        gps_dest_lat = _dms_to_dd(gps['GPSDestLatitude'], lat_ref)
+                        gps_dest_lon = _dms_to_dd(gps['GPSDestLongitude'], lon_ref)
+
+                    if 'GPSLatitude' in gps and 'GPSLongitude' in gps:
+                        lat_ref = gps.get('GPSLatitudeRef', 'N')
+                        lon_ref = gps.get('GPSLongitudeRef', 'E')
+                        gps_lat = _dms_to_dd(gps['GPSLatitude'], lat_ref)
+                        gps_lon = _dms_to_dd(gps['GPSLongitude'], lon_ref)
+
                 
-            if dt and (gps_dest_lat is not None and gps_dest_lon is not None):
-                records.append(record)
+                record = {}
+                record['filepath'] = filepath
+                record['filename'] = filename
+                record['datetime'] = dt
+                if gps_dest_lat is not None:
+                    record["gps_dest_latitude"] = gps_dest_lat
+                if gps_dest_lon is not None:
+                    record["gps_dest_longitude"] = gps_dest_lon
+                if gps_lat is not None:
+                    record["gps_latitude"] = gps_lat
+                if gps_lon is not None:
+                    record["gps_longitude"] = gps_lon    
+                    
+                if dt and (gps_dest_lat is not None and gps_dest_lon is not None):
+                    records.append(record)
+            except:
+                continue
         # delete records with non-unique datetime
         # if two images taken in same second - no keep it coordinates, it is too complicated
         import collections
