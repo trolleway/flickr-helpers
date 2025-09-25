@@ -1,3 +1,10 @@
+
+# my local folders
+apicache
+d
+dev
+*.exe
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
