@@ -881,7 +881,7 @@ table {
         from dateutil import parser
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
-
+        print(self.images_coordinates_from_local_folder)
 
         if len(self.selecteds_list)>0:
             for flickrid in self.selecteds_list:
@@ -892,13 +892,15 @@ table {
                         dt = dt.replace(microsecond=0)
                         if dt.tzinfo:
                             dt = dt.replace(tzinfo=None)
+                        print('search by dt:')
+                        print(dt)
                         if self.images_coordinates_from_local_folder is None:
                             self.formwritefields[current_tab_name]['dest_coordinates'].setText('no loaded folder')
                             return
                         source_image_record = self.images_coordinates_from_local_folder.get(dt)
                         if source_image_record is not None:
                             if 'gps_dest_latitude' in  source_image_record and 'gps_dest_longitude' in source_image_record: 
-                                self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{source_image_record['gps_dest_latitude']} {source_image_record['gps_dest_longitude']}")
+                                self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
                         return
            
            
