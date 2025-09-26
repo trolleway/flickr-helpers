@@ -256,7 +256,19 @@ class Model():
             
             if numberplate != '':
                 new_tags += ' '+str(numberplate)  
-                  
+        
+        elif transport == 'trainstation':
+            
+            name = str(textsdict.get('name','')).strip()
+            owner = str(textsdict.get('owner','')).strip()
+            newname = f'{owner} {name} {datestr}'.replace('  ',' ')
+
+            new_tags=f'"{city}" "{owner}"'
+            
+            #for tag in [model, operator, station, line, region]:
+            #    if tag:
+            #        new_tags += f' "{tag}"'
+                    
         elif transport == 'train':
             owner = str(textsdict.get('owner','')).strip()
             physical = str(textsdict.get('physical','')).strip()
@@ -488,6 +500,8 @@ table {
         self.formtab.addTab(self.create_automobile_tab(), "automobile")
         self.formwritefields["address"]={}
         self.formtab.addTab(self.create_address_tab(), "address")
+        self.formwritefields["trainstation"]={}
+        self.formtab.addTab(self.create_trainstation_tab(), "trainstation")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
      
@@ -763,6 +777,34 @@ table {
         tab.setLayout(form_layout)
         return tab    
 
+    def create_trainstation_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["preset","dest_coordinates","lang_int","lang_loc",'owner','city','name','desc', 'more_tags']:
+            line_edit = QLineEdit()
+            self.formwritefields['trainstation'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+
+            if label=='dest_coordinates':
+                self.loaddestcoords_buttons['trainstation']=QPushButton("⇪ take destination coordinates from image originals ⇪")
+                self.loaddestcoords_buttons['trainstation'].clicked.connect(self.on_load_dest_coord)
+                form_layout.addRow(":", self.loaddestcoords_buttons['trainstation'])
+                
+        self.formwritefields['trainstation']['preset'].setText('trainstation')   
+        self.formwritefields['trainstation']['lang_int'].setText('en')
+        self.formwritefields['trainstation']['lang_loc'].setText('ru')
+        #self.formwritefields['trainstation']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
+        #self.formwritefields['trainstation']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
+        #self.formwritefields['trainstation']['tags_template'].setText('{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
+        
+        
+        nominatim_keys_list = QLabel()
+        nominatim_keys_list.setText(', '.join(self.nominatim_keys))
+        form_layout.addRow('nominatim keys list: ',nominatim_keys_list)
+        tab.setLayout(form_layout)
+        return tab    
+    
     def create_automobile_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
