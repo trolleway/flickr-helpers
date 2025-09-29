@@ -203,7 +203,7 @@ class Model():
         transport=textsdict["preset"].lower()
         number=str(textsdict.get('number'))
         datestr=info['photo']['dates']['taken'][0:10]
-        street=textsdict.get("street")
+        street=textsdict.get("street",'')
         model=textsdict.get('model')
         numberplate=textsdict.get('numberplate','').strip()
         route=str(textsdict.get('route'))
@@ -261,9 +261,10 @@ class Model():
             
             name = str(textsdict.get('name','')).strip()
             owner = str(textsdict.get('owner','')).strip()
-            newname = f'{owner} {name} {datestr}'.replace('  ',' ')
+            newname = f'{owner} station {name} {datestr}'.replace('  ',' ')
+            desc = f'{owner} station {name}'
 
-            new_tags=f'"{city}" "{owner}"'
+            new_tags=f'"{city}" "{owner}" "{name}" "station"'
             
             #for tag in [model, operator, station, line, region]:
             #    if tag:
@@ -296,7 +297,8 @@ class Model():
             olddesc=''
         if olddesc.strip()=='' and street != '':
             newdesc = street
-        if desc != '': newdesc = desc + "\n"+street
+        if desc != '': newdesc = desc 
+        if street is not None and street != '': desc = desc + "\n"+street
 
         flickr.photos.setMeta(
             photo_id=photo_id,
@@ -1067,6 +1069,8 @@ table {
                         
                         for fld,val in replaces['int'].items():
                             txt = txt.replace('{'+fld+'_int}',self.escape4flickr_tag(val))
+                            if 'district' in val.lower():
+                                txt = txt +','+ self.escape4flickr_tag(val.lower().replace('district','').strip())
                         for fld,val in replaces['loc'].items():
                             txt = txt.replace('{'+fld+'_loc}',self.escape4flickr_tag(val))
                         txt = re.sub(',+', ',', txt) #merge multiple , to single ,
