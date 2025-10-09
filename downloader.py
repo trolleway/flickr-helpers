@@ -44,6 +44,7 @@ def download_photo(url, filepath, overwrite):
 
 def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
     """Fetch photos based on query parameters."""
+    '''
     print(taken_date, max_taken_date)
     page=1
     assert page>0
@@ -51,7 +52,36 @@ def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
 tag_mode='all',
  min_taken_date=taken_date, 
 max_taken_date=max_taken_date,
+per_page=500,
 extras='url_o,date_taken,tags')
+    '''
+    params = {}
+    params["user_id"] = flickr.test.login()['user']['id']
+    params['sort']='date-taken-asc'
+    params['per_page']=500
+    params['page'] = 1
+    params['content_types']='0'
+    params['min_taken_date']=taken_date
+    params['max_taken_date']=max_taken_date
+    params['extras'] = 'url_o,date_taken,tags'
+    result_list = list()
+    gonextpage=True
+    page_counter=0
+    while(gonextpage):
+        page_counter = page_counter+1
+        params['page']=page_counter
+        photos = flickr.photos.search(**params)
+        msg=str(photos['photos']['page']).zfill(2) + ' / '+str(photos['photos']['pages']).zfill(2)
+        print(msg)
+        result_list_page=photos["photos"]["photo"]
+        result_list=result_list+result_list_page
+        gonextpage=False
+        if len(result_list_page)>0 and photos['photos']['pages']>page_counter:
+            gonextpage=True
+    return     result_list
+        
+    
+    
     return photos['photos']['photo']
 
 def main():
