@@ -3,6 +3,7 @@ import os
 import flickrapi
 import requests
 import config
+from tqdm import tqdm
 
 def authenticate_flickr():
     """Authenticate and return the Flickr API client in a Termux-friendly way."""
@@ -107,7 +108,7 @@ def main():
          print(f'total is {len(photos)}')
     total=len(photos)
     i=0
-    for photo in photos:
+    for photo in tqdm(photos):
         i=i+1
         if 'url_o' in photo:
             tds=photo['datetaken'].replace(':','')
@@ -115,7 +116,7 @@ def main():
             name = f"{tds}_flickr{photo['id']}_{photo['title'].replace('/','')[0:40]}_suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
             name = name.replace(' ','_')
             filepath = os.path.join(args.destination, name)
-            print(f'{i} / {total}')
+            
             if 'posted' in photo['tags']:
                 print('tagged as posted, skip '+photo['url_o']+ 'try to remove if already downloaded')
                 if os.path.isfile(filepath): os.remove(filepath)
