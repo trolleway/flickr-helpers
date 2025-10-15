@@ -105,14 +105,16 @@ def main():
     photos = fetch_photos(flickr, args.tags, taken_date, user_id, max_taken_date)
     if len(photos)>0:
          print(f'total is {len(photos)}')
-    #print(photos)
     total=len(photos)
     i=0
     for photo in photos:
         i=i+1
         if 'url_o' in photo:
             tds=photo['datetaken'].replace(':','')
-            filepath = os.path.join(args.destination, f"{tds}_flickr{photo['id']}.jpg")
+            suffix=str(i).zfill(2)
+            name = f"{tds}_flickr{photo['id']}_{photo['title'].replace('/','')[0:40]}_suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
+            name = name.replace(' ','_')
+            filepath = os.path.join(args.destination, name)
             print(f'{i} / {total}')
             if 'posted' in photo['tags']:
                 print('tagged as posted, skip '+photo['url_o']+ 'try to remove if already downloaded')
