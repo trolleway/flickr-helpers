@@ -57,6 +57,8 @@ per_page=500,
 extras='url_o,date_taken,tags')
     '''
     params = {}
+    if tags is not None and tags.strip() !='':
+        params["tags"]=tags 
     params["user_id"] = flickr.test.login()['user']['id']
     params['sort']='date-taken-asc'
     params['per_page']=500
