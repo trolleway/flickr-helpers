@@ -4,6 +4,7 @@ import flickrapi
 import requests
 import config
 from tqdm import tqdm
+from dateutil import parser as dateutil_parser
 
 def authenticate_flickr():
     """Authenticate and return the Flickr API client in a Termux-friendly way."""
@@ -45,17 +46,7 @@ def download_photo(url, filepath, overwrite):
 
 def fetch_photos(flickr, tags, taken_date, user_id, max_taken_date):
     """Fetch photos based on query parameters."""
-    '''
-    print(taken_date, max_taken_date)
-    page=1
-    assert page>0
-    photos = flickr.photos.search(user_id=user_id, tags=tags,
-tag_mode='all',
- min_taken_date=taken_date, 
-max_taken_date=max_taken_date,
-per_page=500,
-extras='url_o,date_taken,tags')
-    '''
+
     params = {}
     if tags is not None and tags.strip() !='':
         params["tags"]=tags 
@@ -74,6 +65,7 @@ extras='url_o,date_taken,tags')
         page_counter = page_counter+1
         params['page']=page_counter
         photos = flickr.photos.search(**params)
+
         msg=str(photos['photos']['page']).zfill(2) + ' / '+str(photos['photos']['pages']).zfill(2)
         print(msg)
         result_list_page=photos["photos"]["photo"]
@@ -87,12 +79,37 @@ extras='url_o,date_taken,tags')
     
     return photos['photos']['photo']
 
+def generate_editorial_caption(city, country, dt, description, suffix):
+    """
+    Generate a Shutterstock editorial caption.
+    
+    Args:
+        city (str): City where the photo was taken.
+        country (str): Country where the photo was taken.
+        dt (datetime): 
+        description (str): Description of the scene (factual, present tense).
+        photographer (str): Your name for credit line.
+    
+    Returns:
+        str: Formatted editorial caption.
+    """
+    # Parse date and format as "Month Day, Year"
+
+    formatted_date = dt.strftime("%B %d, %Y")
+    
+    # Build caption
+    caption = f"{city}, {country} - {formatted_date} - {description}{suffix}"
+    return caption
+    
 def main():
     parser = argparse.ArgumentParser(description="Download photos from Flickr by tag taken at one day")
     parser.add_argument("tags", help="Flickr tags.")
     parser.add_argument("taken_date", help="Taken date in YYYY-MM-DD format.")
     parser.add_argument("destination", help="Destination folder for downloaded images.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing images.")
+    parser.add_argument("--preset", choices=["wikicommons", "shutterstock"],default="wikicommons",required=True,help="wikicommons: write prefix, srcid. shutterstock: write date")
+    parser.add_argument("--city",default="Moscow",help="city for Shutterstock caption")
+    parser.add_argument("--country",default="Russia",help="city for Shutterstock caption")
     args = parser.parse_args()
 
     flickr = authenticate_flickr()
@@ -113,10 +130,30 @@ def main():
     for photo in tqdm(photos):
         i=i+1
         if 'url_o' in photo:
-            tds=photo['datetaken'].replace(':','')
-            suffix=str(i).zfill(2)
-            name = f"{tds}_flickr{photo['id']}_{photo['title'].replace('/','')[0:40]}_suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
-            name = name.replace(' ','_')
+            if args.preset == 'wikicommons':
+                tds=photo['datetaken'].replace(':','')
+                suffix=str(i).zfill(2)
+                name = f"{tds}_flickr{photo['id']}_{photo['title'].replace('/','')[0:40]}_suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
+                name = name.replace(' ','_')
+            elif args.preset == 'shutterstock':
+                try:
+
+                    datetaken = dateutil_parser.parse(photo['datetaken'], fuzzy=True)
+                    
+                    if not all(hasattr(datetaken, attr) for attr in ['year', 'month', 'day']):
+                        datetaken = None
+                except Exception:
+                    datetaken = None
+                caption = generate_editorial_caption(
+                city=args.city,
+                country=args.country,
+                dt=datetaken,
+                description=photo['title'],
+                suffix=str(i).zfill(2)
+                )
+                name = caption+os.path.splitext(photo['url_o'])[-1] 
+                
+
             filepath = os.path.join(args.destination, name)
             
             if 'posted' in photo['tags']:

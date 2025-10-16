@@ -103,6 +103,11 @@ class Backend(QObject):
     def handle_select_img_append(self, image_id):
         self.imgSelectedAppend.emit(str(image_id))        
 
+    imgMacros1 = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_handleMacros1(self, image_id):
+        self.imgMacros1.emit(str(image_id))        
+
 class ExternalLinkPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, _type, isMainFrame):
         if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
@@ -328,6 +333,7 @@ class FlickrBrowser(QWidget):
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.select_photo)
         self.backend.imgSelectedAppend.connect(self.select_photo_append)
+        self.backend.imgMacros1.connect(self.on_macros1)
         self.wikidata_model = WikidataModel()
         
         self.css='''        body {
@@ -489,6 +495,7 @@ table {
         self.numlookup_buttons = {}
         self.geocode_rev_buttons = {}
         self.loaddestcoords_buttons = {}
+        self.macros_buttons = {}
         self.formwritefields = {}
         self.formwritefields['tram']={}
         self.formtab.addTab(self.create_tram_tab(), "tram")
@@ -764,7 +771,10 @@ table {
                 self.loaddestcoords_buttons['address']=QPushButton("⇪ take destination coordinates from image originals ⇪")
                 self.loaddestcoords_buttons['address'].clicked.connect(self.on_load_dest_coord)
                 form_layout.addRow(":", self.loaddestcoords_buttons['address'])
-                
+            if label == 'more_tags':
+                self.macros_buttons['address-stage-next-revgeocode'] = QPushButton("Macros | add current file to changeset - go next - load destinstion coordinates - Nominatim query") 
+                self.macros_buttons['address-stage-next-revgeocode'].clicked.connect(self.on_macros1)
+                form_layout.addRow(":", self.macros_buttons['address-stage-next-revgeocode'])               
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
@@ -921,6 +931,9 @@ table {
             text = '"'+text+'"'
         return text
     
+    def on_macros1(self):
+        self.on_load_dest_coord()
+        self.on_geocode_reverse_address()
     def on_load_dest_coord(self):
         from dateutil import parser
         current_tab_index = self.formtab.currentIndex()
@@ -1257,6 +1270,12 @@ table {
                     /* mark selected row */
                     const tr = button.closest('tr');
                     tr.classList.add('selected');
+                }      
+                function handleMacros1(button, imageId) {
+                    backend.handleMacros1(imageId);
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.add('selected');
                 }         
                 
                 function decelectImg(imageId) {
@@ -1303,7 +1322,7 @@ table {
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom=18&addressdetails=1">Rev geocode</a>'''
         
-        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to selection</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
 
