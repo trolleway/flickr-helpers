@@ -3,7 +3,7 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QFrame, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem, QFileDialog
+    QPushButton, QComboBox, QScrollArea, QSplitter, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem, QFileDialog
     
 )
 from PyQt6.QtGui import QPixmap
@@ -19,7 +19,8 @@ from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QDesktopServices
 
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtCore import QObject, pyqtSlot, QUrl
+from PyQt6.QtCore import QObject, pyqtSlot, QUrl, Qt
+
 
 import requests
 
@@ -444,7 +445,7 @@ table {
 
         self.inputs_search["tag_mode"].setPlaceholderText("all or any")
         #self.inputs_search["per_page"].setText(str(50))
-        self.inputs_search["days"].setInputMask("99") 
+
         #self.inputs_search["days"].setPlaceholderText("number")
         #self.inputs_search["page"].setPlaceholderText("1")
         self.search_btn = QPushButton("Search")
@@ -489,12 +490,14 @@ table {
         middlelayout.addWidget(self.formtab)
         layout.addLayout(middlelayout)
         
+        
         # Create form tabs
         self.routelookup_buttons = {}
         self.geolookup_buttons = {}
         self.numlookup_buttons = {}
         self.geocode_rev_buttons = {}
         self.loaddestcoords_buttons = {}
+        self.loadcoords_buttons = {}
         self.macros_buttons = {}
         self.formwritefields = {}
         self.formwritefields['tram']={}
@@ -758,7 +761,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","dest_coordinates","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
+        for label in ["preset","coordinates","dest_coordinates","zoom","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -767,10 +770,14 @@ table {
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
+               
             if label=='dest_coordinates':
                 self.loaddestcoords_buttons['address']=QPushButton("⇪ take destination coordinates from image originals ⇪")
                 self.loaddestcoords_buttons['address'].clicked.connect(self.on_load_dest_coord)
                 form_layout.addRow(":", self.loaddestcoords_buttons['address'])
+                self.loadcoords_buttons['address']=QPushButton("⇪ take coordinates from flickr ⇪")
+                self.loadcoords_buttons['address'].clicked.connect(self.on_load_coord)
+                form_layout.addRow(":", self.loadcoords_buttons['address'])
             if label == 'more_tags':
                 self.macros_buttons['address-stage-next-revgeocode'] = QPushButton("Macros | add current file to changeset - go next - load destinstion coordinates - Nominatim query") 
                 self.macros_buttons['address-stage-next-revgeocode'].clicked.connect(self.on_macros1)
@@ -778,6 +785,7 @@ table {
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
+        self.formwritefields['address']['zoom'].setText('18')
         self.formwritefields['address']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
         self.formwritefields['address']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
         self.formwritefields['address']['tags_template'].setText('{venue_int},{road_int},{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
@@ -934,6 +942,20 @@ table {
     def on_macros1(self):
         self.on_load_dest_coord()
         self.on_geocode_reverse_address()
+    
+    def on_load_coord(self):
+        from dateutil import parser
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                        return
+           
+           
     def on_load_dest_coord(self):
         from dateutil import parser
         current_tab_index = self.formtab.currentIndex()
@@ -959,7 +981,7 @@ table {
                         return
            
            
-    def on_geocode_reverse_street(self):
+    def on_geocode_reverse_street(self,zoom=18):
         geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)   
@@ -981,8 +1003,8 @@ table {
                         
                         geocoderesults={}
                         try:
-                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True)
-                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True)
+                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=zoom)
+                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=zoom)
                         except:
                             return
                         if not geocoderesults['loc']:
@@ -998,7 +1020,7 @@ table {
                         
                         
                         
-    def on_geocode_reverse_address(self):
+    def on_geocode_reverse_address(self,zoom=19):
         # Configure geocoder with 1 req/sec limit
         geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
         geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.2)
@@ -1018,6 +1040,8 @@ table {
                         lon = float(img['longitude'])
                         coords = (lat,lon)
                         dest_coords_str = self.formwritefields[current_tab_name]['dest_coordinates'].text().strip()
+                        if 'zoom' in self.formwritefields[current_tab_name]:
+                            zoom=self.formwritefields[current_tab_name]['zoom'].text().strip()
                         if dest_coords_str != '' and ',' in dest_coords_str: 
                             coords = dest_coords_str
                         
@@ -1026,8 +1050,8 @@ table {
                         
                         geocoderesults={}
                         try:
-                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True)
-                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True)
+                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=zoom)
+                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=zoom)
                         except:
                             return
                         if not geocoderesults['loc']:
@@ -1319,8 +1343,9 @@ table {
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        geocodezoom=18
         if photo['latitude']!=0:
-            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom=18&addressdetails=1">Rev geocode</a>'''
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
         tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
