@@ -107,7 +107,16 @@ class Backend(QObject):
     imgMacros1 = pyqtSignal(str)
     @pyqtSlot(str)
     def handle_handleMacros1(self, image_id):
-        self.imgMacros1.emit(str(image_id))        
+        self.imgMacros1.emit(str(image_id))  
+    mapClick = pyqtSignal(float,float)     
+    @pyqtSlot(float, float)
+    def olimageClicked(self, lat, lon):
+        self.mapClick.emit(float(lat),float(lon))
+
+    # Signals used by the map JavaScript; add placeDestination so JS can connect to it
+    placeMarker = pyqtSignal(float, float, str)
+    placeDestination = pyqtSignal(float, float)
+    clearMarkers = pyqtSignal()    
 
 class ExternalLinkPage(QWebEnginePage):
     def acceptNavigationRequest(self, url, _type, isMainFrame):
@@ -335,6 +344,7 @@ class FlickrBrowser(QWidget):
         self.backend.imgSelected.connect(self.select_photo)
         self.backend.imgSelectedAppend.connect(self.select_photo_append)
         self.backend.imgMacros1.connect(self.on_macros1)
+        self.backend.mapClick.connect(self.on_mapclick)
         self.wikidata_model = WikidataModel()
         
         self.css='''        body {
@@ -394,10 +404,7 @@ table {
         self.init_ui()
         self.flickr = self.authenticate_flickr()
         self.flickrimgs=list()
-        
-        
-        
-        
+          
 
 
     def authenticate_flickr(self):
@@ -477,17 +484,26 @@ table {
 
         # display browser panel
         self.browser_main_table = QWebEngineView()
-        self.browser_main_table.setFixedHeight(450)
+        self.browser_main_table.setFixedHeight(650)
         # do not focus on frist href after html set
         self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         #self.browser_main_table.page().settings().setAttribute(QWebEnginePage.WebAttribute.FocusOnNavigationEnabled, False)
         middlelayout.addWidget(self.browser_main_table)
-        self.browser_main_table.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for query</h1>""", QUrl("qrc:/"))
-       
+        self.browser_main_table.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for search result</h1>""", QUrl("qrc:/"))
+        
+        self.mappicker = QWebEngineView()
+        self.mappicker.setFixedHeight(self.browser_main_table.height())
+        # do not focus on frist href after html set
+        self.mappicker.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        middlelayout.addWidget(self.mappicker)
+        self.mappicker.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for select image</h1>""", QUrl("qrc:/"))
+        
+               
         # texts form
         self.formtab=QTabWidget()
         middlelayout.addWidget(self.formtab)
+        self.formtab.setFixedWidth(400)
         layout.addLayout(middlelayout)
         
         
@@ -769,6 +785,7 @@ table {
                 
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
+                self.geocode_rev_buttons['address'].setStyleSheet("background-color: #e7298a")
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
                
             if label=='dest_coordinates':
@@ -781,7 +798,11 @@ table {
             if label == 'more_tags':
                 self.macros_buttons['address-stage-next-revgeocode'] = QPushButton("Macros | add current file to changeset - go next - load destinstion coordinates - Nominatim query") 
                 self.macros_buttons['address-stage-next-revgeocode'].clicked.connect(self.on_macros1)
-                form_layout.addRow(":", self.macros_buttons['address-stage-next-revgeocode'])               
+                form_layout.addRow(":", self.macros_buttons['address-stage-next-revgeocode'])              
+                self.macros_buttons['nominatim-stage-save'] = QPushButton("Macros | nominatim-stage-save") 
+                self.macros_buttons['nominatim-stage-save'].clicked.connect(self.on_macros2)
+                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: #66a61e")
+                form_layout.addRow(":", self.macros_buttons['nominatim-stage-save'])  
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
@@ -943,6 +964,16 @@ table {
         self.on_load_dest_coord()
         self.on_geocode_reverse_address()
     
+    def on_macros2(self):
+        self.on_geocode_reverse_address()
+        self.on_changeset_add()
+        self.on_write_changeset()
+                
+    def on_mapclick(self,lat,lon):
+
+
+        self.formwritefields['address']['dest_coordinates'].setText(f"{lat},{lon}")
+ 
     def on_load_coord(self):
         from dateutil import parser
         current_tab_index = self.formtab.currentIndex()
@@ -1345,16 +1376,155 @@ table {
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
         geocodezoom=18
         if photo['latitude']!=0:
-            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> >br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
         tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
+    def openlayers_map_refresh(self,lat,lon):
+        openlayers_html = """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OpenLayers Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  html, body, #map { margin:0; padding:0; height:100%; width:100%; }
+  .marker-label { background: rgba(255,255,255,0.8); padding:2px 4px; border-radius:3px; border:1px solid #666; }
+</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@7.4.0/ol.css" />
+<script src="https://cdn.jsdelivr.net/npm/ol@7.4.0/dist/ol.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+</head>
+<body>
+<div id="map"></div>
+<script>
+let map, vectorSource, vectorLayer;
+let destFeature = null;
+
+function initMap() {
+    vectorSource = new ol.source.Vector();
+    vectorLayer = new ol.layer.Vector({ source: vectorSource });
+    map = new ol.Map({
+        target: 'map',
+        layers: [
+            new ol.layer.Tile({ source: new ol.source.OSM() }),
+            vectorLayer
+        ],
+        view: new ol.View({
+            center: ol.proj.fromLonLat([$lon, $lat]),
+            zoom: 18
+        })
+    });
+
+map.on('singleclick', function(evt) {
+    let coord = ol.proj.toLonLat(evt.coordinate);
+    if (evt.originalEvent && evt.originalEvent.shiftKey) {
+        placeDestination(coord[1], coord[0]);
+        if (window.pyObj && window.pyObj.shiftClicked) {
+            window.pyObj.shiftClicked(coord[1], coord[0]);
+        }
+    } else {
+        placeMarker(coord[1], coord[0], 'Image');
+        if (window.pyObj && window.pyObj.olimageClicked) {
+            window.pyObj.olimageClicked(coord[1], coord[0]);
+        }
+    }
+});
+}
+
+function clearMarkers() {
+    vectorSource.clear();
+    destFeature = null;
+}
+
+function placeMarker(lat, lon, label) {
+    clearMarkers();
+    let feature = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
+    });
+    feature.setStyle(new ol.style.Style({
+        image: new ol.style.Circle({ radius: 8, fill: new ol.style.Fill({color: '#ff0000'}), stroke: new ol.style.Stroke({color:'#fff', width:2}) }),
+        text: new ol.style.Text({ text: label || '', offsetY: -20, fill: new ol.style.Fill({color:'#000'}), backgroundFill: new ol.style.Fill({color:'rgba(255,255,255,0.8)'}) })
+    }));
+    vectorSource.addFeature(feature);
+    map.getView().animate({center: ol.proj.fromLonLat([lon, lat]), zoom: 18});
+}
+
+function placeDestination(lat, lon) {
+    if (destFeature) {
+        vectorSource.removeFeature(destFeature);
+        destFeature = null;
+    }
+    destFeature = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
+    });
+    destFeature.setStyle(new ol.style.Style({
+        image: new ol.style.Icon({ src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><circle cx="14" cy="14" r="10" fill="%23007bff" stroke="%23fff" stroke-width="2"/></svg>' }),
+        text: new ol.style.Text({ text: 'Destination', offsetY: -20, fill: new ol.style.Fill({color:'#000'}) })
+    }));
+    vectorSource.addFeature(destFeature);
+}
+
+new QWebChannel(qt.webChannelTransport, function(channel) {
+    window.pyObj = channel.objects.pyObj;
+    window.pyObj.placeMarker.connect(function(lat, lon, label) {
+        placeMarker(lat, lon, label);
+    });
+    window.pyObj.clearMarkers.connect(function() {
+        clearMarkers();
+    });
+    window.pyObj.placeDestination.connect(function(lat, lon) {
+        placeDestination(lat, lon);
+    });
+});
+
+initMap();
+</script>
+</body>
+</html>
+"""
+        # ensure lat/lon are strings for replace
+        openlayers_html = openlayers_html.replace('$lat', str(lat)).replace('$lon', str(lon))
+
+        # create and attach web channel with the same object name used in JS ("pyObj")
+        self.web_channel_mappicker = QWebChannel()
+        self.web_channel_mappicker.registerObject("pyObj", self.backend)
+        self.mappicker.page().setWebChannel(self.web_channel_mappicker)
+        self.mappicker.setHtml(openlayers_html, QUrl("qrc:/"))
+
+        # Now emit the initial marker after the webchannel is set so JS can receive it
+        try:
+            self.backend.placeMarker.emit(float(lat), float(lon), 'text')
+        except Exception:
+            # don't crash UI if emit fails
+            pass
+
+        
 
     def select_photo(self, photo_id):
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
+
+        for img in self.flickrimgs: 
+            if img['id'] == photo_id:
+                #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                lat = img.get('latitude')
+                lon = img.get('longitude')
+                if lat is not None and lon is not None:
+                    self.openlayers_map_refresh(lat,lon)
+                
+                if lat is not None and lon is not None:
+                    # Emit signal to JS to place marker
+                    self.backend.placeMarker.emit(float(lat), float(lon), 'text')
+                else:
+                    # Clear markers
+                    self.backend.clearMarkers.emit()
+            
+        
 
         
 
