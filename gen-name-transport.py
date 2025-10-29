@@ -463,12 +463,37 @@ table {
         self.formcontainers['gpsdest'] = QGroupBox('Select folder with source image files for get destination coordinates')
         self.formlayouts['gpsdest'] = QHBoxLayout()
         self.formcontainers['gpsdest'].setLayout(self.formlayouts['gpsdest'])
-        
         layout.addWidget(self.formcontainers['gpsdest'])
-        # new code: create the button
+        
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self.select_gpsdest_directory)
         self.formlayouts['gpsdest'].addWidget(browse_btn)
+        
+
+        # select folder on disk to get GPS Destination
+        self.formcontainers['coords'] = QGroupBox('Coords')
+        self.formlayouts['coords'] = QHBoxLayout()
+        self.formcontainers['coords'].setLayout(self.formlayouts['coords'])
+        layout.addWidget(self.formcontainers['coords'])
+        browse_btn2 = QPushButton("Select folder with source image files for get destination coordinates")
+        browse_btn2.clicked.connect(self.select_gpsdest_directory)
+        self.formlayouts['coords'].addWidget(browse_btn2)
+        
+        self.wigets = dict()
+        
+        self.wigets['coords'] = QLineEdit()
+        self.formlayouts['coords'].addWidget(QLabel('image coordinates:'))
+        self.formlayouts['coords'].addWidget(self.wigets['coords'])
+        self.wigets['coords-loadfromflickr']=QPushButton("Load coords from Flickr")
+        self.wigets['coords-loadfromflickr'].clicked.connect(self.on_load_coord)
+        self.formlayouts['coords'].addWidget(self.wigets['coords-loadfromflickr'])
+        self.wigets['dest_coords'] = QLineEdit()
+        self.formlayouts['coords'].addWidget(QLabel('destination coordinates:'))
+        self.formlayouts['coords'].addWidget(self.wigets['dest_coords'])
+
+
+        
+        
         
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selected images')
@@ -481,6 +506,8 @@ table {
         self.deselect_photos_button = QPushButton("Deselect all")
         self.deselect_photos_button.clicked.connect(self.deselect_photos)
         self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
+
+
 
         # display browser panel
         self.browser_main_table = QWebEngineView()
@@ -777,7 +804,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","coordinates","dest_coordinates","zoom","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
+        for label in ["preset","zoom","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -970,9 +997,7 @@ table {
         self.on_write_changeset()
                 
     def on_mapclick(self,lat,lon):
-
-
-        self.formwritefields['address']['dest_coordinates'].setText(f"{lat},{lon}")
+        self.wigets['dest_coords'].setText(f"{lat},{lon}")
  
     def on_load_coord(self):
         from dateutil import parser
@@ -983,7 +1008,9 @@ table {
             for flickrid in self.selecteds_list:
                 for img in self.flickrimgs: 
                     if img['id'] == flickrid:
-                        self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                        if 'dest_coordinates' in  self.formwritefields[current_tab_name]:
+                            self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                        self.wigets['coords'].setText(f"{img['latitude']},{img['longitude']}")
                         return
            
            
@@ -1009,6 +1036,7 @@ table {
                         if source_image_record is not None:
                             if 'gps_dest_latitude' in  source_image_record and 'gps_dest_longitude' in source_image_record: 
                                 self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
+                                self.wigets['dest_coords'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
                         return
            
            
@@ -1070,7 +1098,7 @@ table {
                         lat = float(img['latitude'])
                         lon = float(img['longitude'])
                         coords = (lat,lon)
-                        dest_coords_str = self.formwritefields[current_tab_name]['dest_coordinates'].text().strip()
+                        dest_coords_str = self.wigets['dest_coords'].text().strip()
                         if 'zoom' in self.formwritefields[current_tab_name]:
                             zoom=self.formwritefields[current_tab_name]['zoom'].text().strip()
                         if dest_coords_str != '' and ',' in dest_coords_str: 
@@ -1374,9 +1402,10 @@ table {
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        info += '''<a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
         geocodezoom=18
         if photo['latitude']!=0:
-            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> >br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
         tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
