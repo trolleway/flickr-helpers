@@ -2,7 +2,7 @@ import sys
 import flickrapi
 import config
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QScrollArea, QSplitter, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem, QFileDialog
     
 )
@@ -190,6 +190,53 @@ class Model():
             photo_id=photo_id,
             tags=new_tags
         )
+    def street_image_flickr_update(self,flickr, photo_id, textsdict):
+
+        # https://flickr.com/photos/trolleway/51052666337
+
+        # Step 1: Get current photo info
+        info = flickr.photos.getInfo(photo_id=photo_id)
+        visibility = info['photo']['visibility']
+
+        # Step 2: Check and update privacy if needed
+        if visibility.get('ispublic') == 0:
+            flickr.photos.setPerms(
+                photo_id=photo_id,
+                is_public=1,
+                is_friend=0,
+                is_family=0,
+                perm_comment=3,  # Anyone can comment
+                perm_addmeta=2   # Contacts can add tags/notes
+            )
+            print("Privacy changed to public.")
+
+        # Step 3: Update photo metadata
+
+
+       
+        newname = str(textsdict.get('city','')) +' '+ str(textsdict.get('suburb_int','')) +' '+ str(textsdict.get('road_int',''))
+        desc = str(textsdict.get('desc','')).strip() + ' '+ str(textsdict.get('road_loc',''))
+        new_tags = str(textsdict.get('tags','')) + ', '+textsdict.get('city','')+', '+textsdict.get('suburb_int','')
+            
+        if textsdict.get('more_tags','') != '':
+            new_tags += ', '
+            new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
+        if new_tags.strip() != '' and new_tags[0]==',': 
+            new_tags=new_tags[1:]
+            
+        new_tags += ', namegenerated'
+
+        flickr.photos.setMeta(
+            photo_id=photo_id,
+            title=newname,
+            description = desc
+        )
+
+        # Step 4: Update tags
+        flickr.photos.setTags(
+            photo_id=photo_id,
+            tags=new_tags
+        )
         
 
     def transport_image_flickr_update(self,flickr, photo_id, textsdict):
@@ -219,6 +266,9 @@ class Model():
         number=str(textsdict.get('number'))
         datestr=info['photo']['dates']['taken'][0:10]
         street=textsdict.get("street",'')
+        street_int=textsdict.get("street_int",'')
+        street_loc=textsdict.get("street_loc",'')
+        suburb_int=textsdict.get("suburb_int",'')
         model=textsdict.get('model')
         numberplate=textsdict.get('numberplate','').strip()
         route=str(textsdict.get('route'))
@@ -252,9 +302,10 @@ class Model():
         elif transport == 'automobile':
 
             brand = str(textsdict.get('brand','')).strip()
-            newname = f'{city} {brand} {model} {numberplate} {datestr} {street} '.replace('  ',' ')
+            newname = f'{city} {brand} {model} {numberplate} {datestr} {street_int} '.replace('  ',' ')
 
-            new_tags=f'"{city}" auto automobile "{street}"'
+            new_tags=f'"{city}" auto automobile "{street_int}"'
+            if desc == '': desc = f' {brand} {model} {street_loc}'
             if model is not None and len(model)>0:
                 if ' ' in model:
                     new_tags += ' "'+str(model)+'"'
@@ -555,8 +606,10 @@ table {
         self.formtab.addTab(self.create_automobile_tab(), "automobile")
         self.formwritefields["address"]={}
         self.formtab.addTab(self.create_address_tab(), "address")
+        self.formwritefields["street"]={}
+        self.formtab.addTab(self.create_street_tab(), "street")
         self.formwritefields["trainstation"]={}
-        self.formtab.addTab(self.create_trainstation_tab(), "trainstation")
+        self.formtab.addTab(self.create_trainstation_tab(), "trainstastion")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
      
@@ -809,7 +862,6 @@ table {
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
             if label=='name':
-                
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
                 self.geocode_rev_buttons['address'].setStyleSheet("background-color: #e7298a")
@@ -845,6 +897,31 @@ table {
         tab.setLayout(form_layout)
         return tab    
 
+    def create_street_tab(self):
+        tab = QWidget()
+        form_layout = QFormLayout()
+
+        for label in ["preset","dest_coordinates","lang_int","lang_loc",'owner','city','suburb_int','road_loc','road_int','desc','out-name','out-desc', 'more_tags']:
+            line_edit = QLineEdit()
+            self.formwritefields['street'][label] = line_edit
+            form_layout.addRow(label.capitalize() + ":", line_edit)
+
+            if label=='road_int':
+                self.geocode_rev_buttons['street']=QPushButton("⇪ Nominatim query ⇪")
+                self.geocode_rev_buttons['street'].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons['street'].setStyleSheet("background-color: #e7298a")
+                form_layout.addRow(":", self.geocode_rev_buttons['street'])
+                
+        self.formwritefields['street']['preset'].setText('street')   
+        self.formwritefields['street']['lang_int'].setText('en')
+        self.formwritefields['street']['lang_loc'].setText('ru')
+
+        nominatim_keys_list = QLabel()
+        nominatim_keys_list.setText(', '.join(self.nominatim_keys))
+        form_layout.addRow('nominatim keys list: ',nominatim_keys_list)
+        tab.setLayout(form_layout)
+        return tab    
+    
     def create_trainstation_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
@@ -877,16 +954,17 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","city","brand", "numberplate", "model","street", 'desc',  'more_tags','dest_coordinates','lang_loc','lang_int']:
+        for label in ["preset","city","brand", "numberplate", "model","suburb_int","road_int","road_loc", 'desc', 'more_tags','dest_coordinates','lang_loc','lang_int']:
             line_edit = QLineEdit()
             if label=="preset":
                 line_edit.setText('automobile')
             self.formwritefields['automobile'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
-            if label=='street':
+            if label=='road_loc':
                 self.geocode_rev_buttons['automobile']=dict()
                 self.geocode_rev_buttons['automobile']=QPushButton("⇪ Street from Nominatim query ⇪")
                 self.geocode_rev_buttons['automobile'].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons['automobile'].setStyleSheet("background-color: #e7298a")
                 form_layout.addRow(":", self.geocode_rev_buttons['automobile'])
         self.formwritefields['automobile']['lang_int'].setText('en')
         self.formwritefields['automobile']['lang_loc'].setText('ru')
@@ -925,8 +1003,10 @@ table {
         if len(self.changeset)>0:
             for change in self.changeset:
                 try:
-                    if change['textsdict']["preset"]=='address':
+                    if change['textsdict']["preset"]== 'address':
                         self.model.address_image_flickr_update(self.flickr, change['id'], change['textsdict'])       
+                    elif change['textsdict']["preset"]== 'street':
+                        self.model.street_image_flickr_update(self.flickr, change['id'], change['textsdict'])   
                     else:
                         self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
                 except:
@@ -1040,42 +1120,7 @@ table {
                         return
            
            
-    def on_geocode_reverse_street(self,zoom=18):
-        geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
-        current_tab_index = self.formtab.currentIndex()
-        current_tab_name = self.formtab.tabText(current_tab_index)   
-        if len(self.selecteds_list)>0:
-            for flickrid in self.selecteds_list:
-                for img in self.flickrimgs: 
-                    if img['id'] == flickrid:
-                        
-                        # lookup
-                        lat = float(img['latitude'])
-                        lon = float(img['longitude'])
-                        coords = (lat,lon)
-                        dest_coords_str = self.formwritefields[current_tab_name]['dest_coordinates'].text().strip()
-                        if dest_coords_str != '' and ',' in dest_coords_str: 
-                            coords = dest_coords_str
-                        
-                        lang_loc = self.formwritefields[current_tab_name]['lang_loc'].text()
-                        lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
-                        
-                        geocoderesults={}
-                        try:
-                            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=zoom)
-                            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=zoom)
-                        except:
-                            return
-                        if not geocoderesults['loc']:
-                            return                        
-                        if not geocoderesults['int']:
-                            return
-                        
-                        txt = geocoderesults['int'].raw.get('address',{}).get('road','')
-                        txt=translit(txt,lang_loc,reversed=True).replace("'",'')
 
-                        self.formwritefields[current_tab_name]['street'].setText(txt)
-                        
                         
                         
                         
@@ -1116,11 +1161,8 @@ table {
                         if not geocoderesults['loc']:
                             return                        
                         if not geocoderesults['int']:
-                            return
-                        
+                            return  
                         replaces={'int':{},'loc':{}}
-                        
-                        
                         for key in self.nominatim_keys:
                             
                             replaces['loc'][key]=geocoderesults['loc'].raw.get('address',{}).get(key,'')
@@ -1173,6 +1215,54 @@ table {
                         self.formwritefields[current_tab_name]['tags'].setText(txt)
                         
         
+    def on_geocode_reverse_street(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+        lang_loc = self.formwritefields[current_tab_name]['lang_loc'].text()
+        lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
+        
+        c = ''
+        c = self.wigets['dest_coords'].text().strip()
+        if c == '':
+            c = self.wigets['coords'].text().strip()
+            if c == '':
+                QMessageBox.warning(self, "no coordinates", "click on map to get street name")
+                return
+       
+        geocode_result = self.geocode_street(c,lang_loc,lang_int)
+        if geocode_result is not None:    
+            road_loc,road_int,suburb_int = geocode_result
+            self.formwritefields[current_tab_name]['road_int'].setText(road_int)
+            self.formwritefields[current_tab_name]['road_loc'].setText(road_loc)
+            if 'suburb_int' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['suburb_int'].setText(suburb_int)
+        
+    def geocode_street(self,coords:str,lang_loc:str,lang_int:str):    
+        geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.2)
+        if coords != '' and ',' in coords: 
+            coords = coords
+        else:
+            return 'set dest coords frist','set dest coords frist'
+        
+        geocoderesults={}
+        try:
+            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=16)
+            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=16)
+        except:
+            return
+        if not geocoderesults['loc']:
+            return                        
+        if not geocoderesults['int']:
+            return
+        
+        road_loc = geocoderesults['loc'].raw.get('address',{}).get('road','')
+        road_int =translit( geocoderesults['int'].raw.get('address',{}).get('road',''),lang_loc,reversed=True)
+        suburb_int =translit( geocoderesults['int'].raw.get('address',{}).get('suburb',''),lang_loc,reversed=True)
+        
+        return road_loc, road_int,suburb_int
+        
+
     def on_geolookup_street(self):
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
@@ -1236,7 +1326,7 @@ table {
         self.browser_main_table.setHtml('''<html><body><h1>wait for query execute</h1>''', QUrl("qrc:/"))
         pass
     
-    def search_photos(self,SORTMODE = 'datetaken'):
+    def search_photos(self,SORTMODE = 'datetaken',skip_if_namegenerated=True):
         #self.get_photos_from_album('72177720327428694')
         #return
         self.reset_search_results()
@@ -1291,8 +1381,7 @@ table {
             page_counter = page_counter+1
             params['page']=page_counter
             photos = self.flickr.photos.search(**params)
-            msg=str(photos['photos']['page']).zfill(2) + ' / '+str(photos['photos']['pages']).zfill(2)
-            print(msg)
+
             result_list_page=photos["photos"]["photo"]
             result_list=result_list+result_list_page
             gonextpage=False
@@ -1316,7 +1405,8 @@ table {
             
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
-                if 'namegenerated' in photo['tags'] and 'noname' not in photo['tags']:
+                 
+                if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
                     continue
                 if tags4query != '':
                     tags4search=list()
@@ -1545,6 +1635,8 @@ initMap();
                 lon = img.get('longitude')
                 if lat is not None and lon is not None:
                     self.openlayers_map_refresh(lat,lon)
+                #TODO: WRITE HERE
+                self.wigets['coords'].setText(f"{lat},{lon}")
                 
                 if lat is not None and lon is not None:
                     # Emit signal to JS to place marker
@@ -1552,10 +1644,6 @@ initMap();
                 else:
                     # Clear markers
                     self.backend.clearMarkers.emit()
-            
-        
-
-        
 
 
     def select_photo_append(self, photo_id):
