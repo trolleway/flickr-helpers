@@ -101,6 +101,24 @@ class Backend(QObject):
             self.imgSelected.emit(str(image_id))
         except:
             pass
+        
+class Backend(QObject):
+    imgSelected = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img(self, image_id):
+        try:
+            self.imgSelected.emit(str(image_id))
+        except:
+            pass
+        
+    ShowImageOnMap = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_ShowImageOnMap(self, image_id):
+        try:
+            self.ShowImageOnMap.emit(str(image_id))
+        except:
+            pass
+        
     imgSelectedAppend = pyqtSignal(str)
     @pyqtSlot(str)
     def handle_select_img_append(self, image_id):
@@ -395,6 +413,7 @@ class FlickrBrowser(QWidget):
 
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.select_photo)
+        self.backend.ShowImageOnMap.connect(self.ShowImageOnMap)
         self.backend.imgSelectedAppend.connect(self.select_photo_append)
         self.backend.imgMacros1.connect(self.on_macros1)
         self.backend.mapClick.connect(self.on_mapclick)
@@ -491,7 +510,7 @@ table {
         self.search_formcontainer.setLayout(self.search_formcontainer_layout)
         # Input fields
         self.inputs_search = {}
-        fields = ["tags", "tag_mode", "min_taken_date", "max_taken_date","days","per_page"]
+        fields = ["tags", "tag_mode", "exclude", "min_taken_date", "max_taken_date","days","per_page"]
         for field in fields:
             row = QHBoxLayout()
             label = QLabel(field)
@@ -1337,6 +1356,9 @@ table {
         params = {"extras": "date_taken,tags,geo,url_o"}
         for key, widget in self.inputs_search.items():
             val = widget.text().strip()
+            if key == 'exclude':
+                exclude_tags = val
+                continue
             if val:
                 params[key] = val
         
@@ -1410,6 +1432,17 @@ table {
                  
                 if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
                     continue
+                if len(exclude_tags) > 0:
+                    if ',' in exclude_tags:
+                        etl=exclude_tags.split(',')
+                    else:
+                        etl=list()
+                        etl.append(exclude_tags)
+                    tags4search=list()
+                    tags4search=[tag.strip().strip('"') for tag in photo['tags'].split(' ')]
+                    if any(elem in etl for elem in tags4search):
+                        continue                 
+
                 if tags4query != '':
                     tags4search=list()
                     tags4search=[tag.strip().strip('"') for tag in photo['tags'].split(' ')]
@@ -1451,11 +1484,8 @@ table {
                 }); 
             }
                 
-                function handleSelectImgAppend(button, imageId) {
-                    backend.handle_select_img_append(imageId);
-                    /* mark selected row */
-                    const tr = button.closest('tr');
-                    tr.classList.add('selected');
+                function handleShowImageOnMap(button, imageId) {
+                    backend.handle_ShowImageOnMap(imageId);
                 }      
                 function handleMacros1(button, imageId) {
                     backend.handleMacros1(imageId);
@@ -1510,7 +1540,7 @@ table {
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
-        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button  tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
     def openlayers_map_refresh(self,lat,lon):
@@ -1641,9 +1671,24 @@ initMap();
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
 
+
         for img in self.flickrimgs: 
             if img['id'] == photo_id:
                 #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                
+                lat = img.get('latitude')
+                lon = img.get('longitude')
+                self.wigets['coords'].setText(f"{lat},{lon}")
+                    
+    def ShowImageOnMap(self, photo_id):
+        self.selecteds_list = list()
+        self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+
+        for img in self.flickrimgs: 
+            if img['id'] == photo_id:
+                #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                
                 lat = img.get('latitude')
                 lon = img.get('longitude')
                 if lat is not None and lon is not None:
