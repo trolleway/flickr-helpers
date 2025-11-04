@@ -93,15 +93,7 @@ class WikidataModel:
     
     
 
-class Backend(QObject):
-    imgSelected = pyqtSignal(str)
-    @pyqtSlot(str)
-    def handle_select_img(self, image_id):
-        try:
-            self.imgSelected.emit(str(image_id))
-        except:
-            pass
-        
+
 class Backend(QObject):
     imgSelected = pyqtSignal(str)
     @pyqtSlot(str)
@@ -1427,6 +1419,7 @@ table {
             else:
                 result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             
+            files_to_display=0
             for photo in result_list:
                 #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
                  
@@ -1454,6 +1447,7 @@ table {
                     # for all mode all(elem in list2 for elem in list1)
 
                 trs+=self.gen_photo_row(photo)
+                files_to_display = files_to_display + 1
         
         html="""<html>       <head>
             <style>
@@ -1502,7 +1496,8 @@ table {
                 }
             </script>
         </head><body><table>"""
-        html+='<p style="font-face: monospace;">Total: '+str(len(result_list))+'</p>'
+        html+='<p style="font-face: monospace;">Get images from server: '+str(len(result_list))+'</p>'
+        html+='<p style="font-face: monospace;">Displayed images: '+str(files_to_display)+'</p>'
         html+=trs
         html+='</table>'
 
@@ -1540,7 +1535,7 @@ table {
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
-        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Append to select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
     def openlayers_map_refresh(self,lat,lon):
