@@ -97,8 +97,10 @@ class Backend(QObject):
     imgSelected = pyqtSignal(str)
     @pyqtSlot(str)
     def handle_select_img(self, image_id):
-        self.imgSelected.emit(str(image_id))
-
+        try:
+            self.imgSelected.emit(str(image_id))
+        except:
+            pass
     imgSelectedAppend = pyqtSignal(str)
     @pyqtSlot(str)
     def handle_select_img_append(self, image_id):
@@ -1431,12 +1433,23 @@ table {
                     backend = channel.objects.backend;
                 });
 
-                function handleSelectImg(button, imageId) {
-                    backend.handle_select_img(imageId);
-                    /* mark selected row */
-                    const tr = button.closest('tr');
-                    tr.classList.add('selected');
-                }
+
+            function handleSelectImg(button, imageId) {
+                backend.handle_select_img(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+
+                /* update other rows */
+                const allRows = document.querySelectorAll('table tr');
+                allRows.forEach(row => {
+                    if (row !== tr && row.classList.contains('selected')) {
+                        row.classList.remove('selected');
+                        row.classList.add('visited');
+                    }
+                }); 
+            }
                 
                 function handleSelectImgAppend(button, imageId) {
                     backend.handle_select_img_append(imageId);
