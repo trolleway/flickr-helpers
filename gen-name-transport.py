@@ -1477,6 +1477,17 @@ table {
                     }
                 }); 
             }
+
+            function handleSelectImgAppend(button, imageId) {
+                backend.handle_select_img_append(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+
+                /* no update other rows */
+
+            }
                 
                 function handleShowImageOnMap(button, imageId) {
                     backend.handle_ShowImageOnMap(imageId);
@@ -1535,7 +1546,7 @@ table {
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
-        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Append to select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
     def openlayers_map_refresh(self,lat,lon):
@@ -1715,7 +1726,7 @@ initMap();
         self.selections_display_update()
     def selections_display_update(self):
         if len(self.selecteds_list)>0:
-            self.selections_label.setText(str(len(self.selecteds_list))+': '+' '.join(self.selecteds_list))
+            self.selections_label.setText( '<a href="https://www.flickr.com/photos/organize/?ids='+ ','.join(self.selecteds_list)+'">'+ str(len(self.selecteds_list))+' image(s) '+'</a> ')
             
 
         else:
