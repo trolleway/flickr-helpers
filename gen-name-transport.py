@@ -1743,6 +1743,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
     parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
     parser.add_argument("--per_page", type=int, default=500, help="per page param for flickr search api", required=False)
+    parser.add_argument("--exclude", type=str, help="exclude these tags from search. separator is , ") 
     
 
 
