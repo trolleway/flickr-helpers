@@ -1618,7 +1618,7 @@ function placeMarker(lat, lon, label) {
         text: new ol.style.Text({ text: label || '', offsetY: -20, fill: new ol.style.Fill({color:'#000'}), backgroundFill: new ol.style.Fill({color:'rgba(255,255,255,0.8)'}) })
     }));
     vectorSource.addFeature(feature);
-    map.getView().animate({center: ol.proj.fromLonLat([lon, lat]), zoom: 18});
+    map.getView().animate({center: ol.proj.fromLonLat([lon, lat]), zoom: 18,duration:100});
 }
 
 function placeDestination(lat, lon) {
