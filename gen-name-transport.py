@@ -411,6 +411,10 @@ class FlickrBrowser(QWidget):
         self.backend.mapClick.connect(self.on_mapclick)
         self.wikidata_model = WikidataModel()
         
+        #https://colorbrewer2.org/?type=qualitative&scheme=Paired&n=8
+        
+        self.palette=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00']
+        
         self.css='''        body {
             background-color: #1a1a1a;
             color: #ffffff;
@@ -462,7 +466,7 @@ table {
 
         
         '''
-        self.nominatim_keys=['country','state','county','city','village','hamlet','town','suburb','neighbourhood','road','house_number']
+        self.nominatim_keys=['country','state','county','city','village','hamlet','town','suburb','neighbourhood','road','house_number','name']
         self.gps_dest_folder = None
         self.images_coordinates_from_local_folder = None
         self.init_ui()
@@ -622,19 +626,21 @@ table {
         self.formwritefields["street"]={}
         self.formtab.addTab(self.create_street_tab(), "street")
         self.formwritefields["trainstation"]={}
-        self.formtab.addTab(self.create_trainstation_tab(), "trainstastion")
+        self.formtab.addTab(self.create_trainstation_tab(), "trainstation")
         self.formtab.setCurrentIndex(1)  # This makes "trolleybus" the default visible tab
         
      
         
         self.changeset_add_btn = QPushButton("Add to changeset")
+        self.changeset_add_btn.setStyleSheet("background-color: "+self.palette[7])
         self.changeset_add_btn.clicked.connect(self.on_changeset_add)
         layout.addWidget(self.changeset_add_btn)
         
         self.changeset_write_btn = QPushButton("Write changeset")
+        self.changeset_write_btn.setStyleSheet("background-color: "+self.palette[5])
         self.changeset_write_btn.clicked.connect(self.on_write_changeset)
         layout.addWidget(self.changeset_write_btn)
-        
+
         
 
         
@@ -877,7 +883,7 @@ table {
             if label=='name':
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
-                self.geocode_rev_buttons['address'].setStyleSheet("background-color: #e7298a")
+                self.geocode_rev_buttons['address'].setStyleSheet("background-color: "+self.palette[6])
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
                
             if label=='dest_coordinates':
@@ -891,17 +897,23 @@ table {
                 self.macros_buttons['address-stage-next-revgeocode'] = QPushButton("Macros | add current file to changeset - go next - load destinstion coordinates - Nominatim query") 
                 self.macros_buttons['address-stage-next-revgeocode'].clicked.connect(self.on_macros1)
                 form_layout.addRow(":", self.macros_buttons['address-stage-next-revgeocode'])              
+                
+                self.macros_buttons['nominatim-stage'] = QPushButton("Macros | nominatim-stage") 
+                self.macros_buttons['nominatim-stage'].clicked.connect(self.on_macros2)
+                self.macros_buttons['nominatim-stage'].setStyleSheet("background-color: "+self.palette[7])
+                form_layout.addRow(":", self.macros_buttons['nominatim-stage'])  
+                             
                 self.macros_buttons['nominatim-stage-save'] = QPushButton("Macros | nominatim-stage-save") 
-                self.macros_buttons['nominatim-stage-save'].clicked.connect(self.on_macros2)
-                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: #66a61e")
+                self.macros_buttons['nominatim-stage-save'].clicked.connect(self.on_macros3)
+                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[5])
                 form_layout.addRow(":", self.macros_buttons['nominatim-stage-save'])  
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
         self.formwritefields['address']['zoom'].setText('18')
-        self.formwritefields['address']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
-        self.formwritefields['address']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
-        self.formwritefields['address']['tags_template'].setText('{venue_int},{road_int},{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
+        self.formwritefields['address']['name_template'].setText('{village_int}{hamlet_int}{city_int}{town_int} {road_int} {house_number_int}')
+        self.formwritefields['address']['desc_template'].setText('{venue_int} {village_loc}{hamlet_loc}{city_loc}{town_loc} {road_loc} {house_number_loc} {name_int}')
+        self.formwritefields['address']['tags_template'].setText('{venue_int},{village_int},{hamlet_int},{city_int},{name_loc},{road_int},{country_int},{suburb_int},{town_int},{state_int},{neighbourhood_int},building')
         
         
         nominatim_keys_list = QLabel()
@@ -1085,6 +1097,10 @@ table {
         self.on_geocode_reverse_address()
     
     def on_macros2(self):
+        self.on_geocode_reverse_address()
+        self.on_changeset_add()
+    
+    def on_macros3(self):
         self.on_geocode_reverse_address()
         self.on_changeset_add()
         self.on_write_changeset()
@@ -1541,7 +1557,7 @@ table {
             geo_text='🌍❌'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
-        info += '''<a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
+        info += ''' <a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
         geocodezoom=18
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
