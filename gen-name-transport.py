@@ -589,6 +589,7 @@ table {
         
         self.mappicker = QWebEngineView()
         self.mappicker.setFixedHeight(self.browser_main_table.height())
+        self.mappicker.setMaximumWidth(450)
         # do not focus on frist href after html set
         self.mappicker.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         middlelayout.addWidget(self.mappicker)
