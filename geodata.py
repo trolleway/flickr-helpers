@@ -36,7 +36,7 @@ from dateutil import parser
 
 from datetime import datetime, timedelta
 
-def get_dates_between(start_date_str, end_date_str):
+def get_dates_between(start_date_str, end_date_str,step=1):
     # Convert strings to datetime objects
     start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
     end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
@@ -50,7 +50,7 @@ def get_dates_between(start_date_str, end_date_str):
     current_date = start_date
     while current_date <= end_date:
         date_list.append(current_date.strftime("%Y-%m-%d"))
-        current_date += timedelta(days=1)
+        current_date += timedelta(days=step)
     
     return date_list
 
@@ -79,6 +79,8 @@ def authenticate_flickr():
 
 flickr = authenticate_flickr()
 
+DAYS_PER_QUERY=2
+
 # Prepare parameters dynamically
 search_params = {}
 if args.user_id:
@@ -89,13 +91,13 @@ else:
 if args.min_taken_date:
     search_params["min_taken_date"] = args.min_taken_date
 if args.interval == 'day':
-    search_params["max_taken_date"] = (datetime.strptime(args.min_taken_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    search_params["max_taken_date"] = (datetime.strptime(args.min_taken_date, "%Y-%m-%d") + timedelta(days=DAYS_PER_QUERY)).strftime("%Y-%m-%d")
 if args.max_taken_date:
     search_params["max_taken_date"] = args.max_taken_date
     
 
 if args.max_taken_date:
-    dates=get_dates_between(search_params["min_taken_date"], search_params["max_taken_date"])
+    dates=get_dates_between(search_params["min_taken_date"], search_params["max_taken_date"],DAYS_PER_QUERY)
 else:
     dates=[]
     dates.append(search_params["min_taken_date"])
@@ -103,7 +105,7 @@ else:
 for date2search in tqdm(dates):  
   
     search_params["min_taken_date"] = date2search
-    search_params["max_taken_date"] = (datetime.strptime(date2search, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+    search_params["max_taken_date"] = (datetime.strptime(date2search, "%Y-%m-%d") + timedelta(days=DAYS_PER_QUERY)).strftime("%Y-%m-%d")
     search_params['sort']='date-taken-asc'
     search_params['per_page']=500
     search_params['has_geo']=1
@@ -115,6 +117,7 @@ for date2search in tqdm(dates):
     page_counter=0
     
     # First request to know total pages
+    tqdm.write(search_params["min_taken_date"]+'..'+search_params["max_taken_date"])
     photos = flickr.photos.search(**search_params)
     total_pages = photos['photos']['pages']
     with tqdm(total=total_pages, desc=f"Pages for {date2search}", leave=False) as pbar:
