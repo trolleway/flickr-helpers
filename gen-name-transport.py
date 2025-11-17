@@ -579,7 +579,7 @@ table {
 
         # display browser panel
         self.browser_main_table = QWebEngineView()
-        self.browser_main_table.setFixedHeight(650)
+        self.browser_main_table.setMinimumHeight(450)
         # do not focus on frist href after html set
         self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
@@ -906,8 +906,15 @@ table {
                              
                 self.macros_buttons['nominatim-stage-save'] = QPushButton("Macros | nominatim-stage-save") 
                 self.macros_buttons['nominatim-stage-save'].clicked.connect(self.on_macros3)
-                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[5])
+                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[6])
                 form_layout.addRow(":", self.macros_buttons['nominatim-stage-save'])  
+                
+                             
+                #self.macros_buttons['queue-nominatim-stage-save'] = QPushButton("Macros | queue-nominatim-stage-save") 
+                #self.macros_buttons['queue-nominatim-stage-save'].clicked.connect(self.on_macros3)
+                #self.macros_buttons['queue-nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[5])
+                #form_layout.addRow(":", self.macros_buttons['queue-nominatim-stage-save'])  
+                
         self.formwritefields['address']['preset'].setText('address')   
         self.formwritefields['address']['lang_int'].setText('en')
         self.formwritefields['address']['lang_loc'].setText('ru')
@@ -1105,7 +1112,10 @@ table {
         self.on_geocode_reverse_address()
         self.on_changeset_add()
         self.on_write_changeset()
-                
+    
+
+     
+                   
     def on_mapclick(self,lat,lon):
         self.wigets['dest_coords'].setText(f"{lat},{lon}")
  
