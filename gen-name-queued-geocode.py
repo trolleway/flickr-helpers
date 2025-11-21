@@ -1453,6 +1453,10 @@ table {
             }
                 
                 function handleShowImageOnMap(button, imageId) {
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.remove('visited');
+                    tr.classList.add('selected');
                     backend.handle_ShowImageOnMap(imageId);
                     backend.handle_select_img(imageId);
                 }   
