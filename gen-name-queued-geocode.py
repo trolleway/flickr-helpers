@@ -349,6 +349,9 @@ class FlickrBrowser(QWidget):
         self.changeset = list()
         self.geocode_queue = dict()
         self.geocode_results = dict()
+        
+        self.lang_int = 'en'
+        self.lang_loc = 'ru'
 
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.on_photo_select)
@@ -751,10 +754,13 @@ table {
                 line_edit.setText('tram')
             self.formwritefields['tram'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
-            if label=="street":
-                self.geolookup_buttons['tram']=dict()
-                self.geolookup_buttons['tram']["street"]=QPushButton("⇪ geolookup_street ⇪")
-                form_layout.addRow(":", self.geolookup_buttons['tram']["street"])
+            if label=='street':
+                self.geocode_rev_buttons['tram']=dict()
+                self.geocode_rev_buttons['tram']=QPushButton("⇪ Street from Nominatim query ⇪")
+                self.geocode_rev_buttons['tram'].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons['tram'].setStyleSheet("background-color: #e7298a")
+                form_layout.addRow(":", self.geocode_rev_buttons['tram'])
+                
             if label=='number':
                 self.numlookup_buttons['tram']=dict()
                 self.numlookup_buttons['tram']['number']=QPushButton("⇪ take num from name prefix ⇪")
@@ -782,10 +788,12 @@ table {
                 line_edit.setText(transport)
             self.formwritefields[transport][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
-            if label=="street":
-                self.geolookup_buttons[transport]=dict()
-                self.geolookup_buttons[transport]["street"]=QPushButton("⇪ geolookup_street ⇪")
-                form_layout.addRow(":", self.geolookup_buttons[transport]["street"])
+            if label=='street':
+                self.geocode_rev_buttons[transport]=dict()
+                self.geocode_rev_buttons[transport]=QPushButton("⇪ Street from Nominatim query ⇪")
+                self.geocode_rev_buttons[transport].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons[transport].setStyleSheet("background-color: #e7298a")
+                form_layout.addRow(":", self.geocode_rev_buttons[transport])
             if label=='number':
                 self.numlookup_buttons[transport]=dict()
                 self.numlookup_buttons[transport]['number']=QPushButton("⇪ take num from name prefix ⇪")
@@ -811,11 +819,12 @@ table {
                 line_edit.setText('bus')
             self.formwritefields['bus'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
-            if label=="street":
-                self.geolookup_buttons[transport]=dict()
-                self.geolookup_buttons[transport]["street"]=QPushButton("⇪ geolookup_street ⇪")
-
-                form_layout.addRow(":", self.geolookup_buttons[transport]["street"])
+            if label=='street':
+                self.geocode_rev_buttons[transport]=dict()
+                self.geocode_rev_buttons[transport]=QPushButton("⇪ Street from Nominatim query ⇪")
+                self.geocode_rev_buttons[transport].clicked.connect(self.on_geocode_reverse_street)
+                self.geocode_rev_buttons[transport].setStyleSheet("background-color: #e7298a")
+                form_layout.addRow(":", self.geocode_rev_buttons[transport])
             if label=='number':
                 self.numlookup_buttons[transport]=dict()
                 self.numlookup_buttons[transport]['number']=QPushButton("⇪ take num from name prefix ⇪")
@@ -833,7 +842,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","zoom","lang_int","lang_loc","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
+        for label in ["preset","zoom","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -872,8 +881,6 @@ table {
                 #form_layout.addRow(":", self.macros_buttons['queue-nominatim-stage-save'])  
                 
         self.formwritefields['address']['preset'].setText('address')   
-        self.formwritefields['address']['lang_int'].setText('en')
-        self.formwritefields['address']['lang_loc'].setText('ru')
         self.formwritefields['address']['zoom'].setText('18')
         self.formwritefields['address']['name_template'].setText('{village_int}{hamlet_int}{city_int}{town_int} {road_int} {house_number_int}')
         self.formwritefields['address']['desc_template'].setText('{venue_int} {village_loc}{hamlet_loc}{city_loc}{town_loc} {road_loc} {house_number_loc} {name_int}')
@@ -890,7 +897,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","dest_coordinates","lang_int","lang_loc",'owner','city','suburb_int','road_loc','road_int','desc','out-name','out-desc', 'more_tags']:
+        for label in ["preset","dest_coordinates",'owner','city','suburb_int','road_loc','road_int','desc','out-name','out-desc', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['street'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -902,8 +909,7 @@ table {
                 form_layout.addRow(":", self.geocode_rev_buttons['street'])
                 
         self.formwritefields['street']['preset'].setText('street')   
-        self.formwritefields['street']['lang_int'].setText('en')
-        self.formwritefields['street']['lang_loc'].setText('ru')
+
 
         nominatim_keys_list = QLabel()
         nominatim_keys_list.setText(', '.join(self.nominatim_keys))
@@ -915,7 +921,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","dest_coordinates","lang_int","lang_loc",'owner','city','name','desc', 'more_tags']:
+        for label in ["preset","dest_coordinates",'owner','city','name','desc', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['trainstation'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
@@ -926,8 +932,7 @@ table {
                 form_layout.addRow(":", self.loaddestcoords_buttons['trainstation'])
                 
         self.formwritefields['trainstation']['preset'].setText('trainstation')   
-        self.formwritefields['trainstation']['lang_int'].setText('en')
-        self.formwritefields['trainstation']['lang_loc'].setText('ru')
+
         #self.formwritefields['trainstation']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
         #self.formwritefields['trainstation']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
         #self.formwritefields['trainstation']['tags_template'].setText('{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
@@ -943,7 +948,7 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","city","brand", "numberplate", "model","suburb_int","road_int","road_loc", 'desc', 'more_tags','dest_coordinates','lang_loc','lang_int']:
+        for label in ["preset","city","brand", "numberplate", "model","suburb_int","road_int","road_loc", 'desc', 'more_tags','dest_coordinates']:
             line_edit = QLineEdit()
             if label=="preset":
                 line_edit.setText('automobile')
@@ -955,8 +960,6 @@ table {
                 self.geocode_rev_buttons['automobile'].clicked.connect(self.on_geocode_reverse_street)
                 self.geocode_rev_buttons['automobile'].setStyleSheet("background-color: #e7298a")
                 form_layout.addRow(":", self.geocode_rev_buttons['automobile'])
-        self.formwritefields['automobile']['lang_int'].setText('en')
-        self.formwritefields['automobile']['lang_loc'].setText('ru')
         tab.setLayout(form_layout)
         return tab  
 
@@ -1144,8 +1147,8 @@ table {
     def process_geocode_queue(self):
         if len(self.geocode_queue) < 1:
             return
-        lang_loc = 'ru'
-        lang_int = 'en'
+        lang_loc = self.lang_loc
+        lang_int = self.lang_int
         zoom=19
         self.geocode_results = dict()
         for flickrid,data in self.geocode_queue.items():
@@ -1177,8 +1180,8 @@ table {
                         if dest_coords_str != '' and ',' in dest_coords_str: 
                             coords = dest_coords_str
                         
-                        lang_loc = self.formwritefields[current_tab_name]['lang_loc'].text()
-                        lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
+                        lang_loc = self.lang_loc
+                        lang_int = self.lang_int
                         
                         if flickrid in self.geocode_results:
                             geocoderesults = self.geocode_results[flickrid]
@@ -1243,8 +1246,8 @@ table {
     def on_geocode_reverse_street(self):
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
-        lang_loc = self.formwritefields[current_tab_name]['lang_loc'].text()
-        lang_int = self.formwritefields[current_tab_name]['lang_int'].text()
+        lang_loc = self.lang_loc
+        lang_int = self.lang_int
         
         c = ''
         c = self.wigets['dest_coords'].text().strip()
@@ -1257,8 +1260,12 @@ table {
         geocode_result = self.geocode_street(c,lang_loc,lang_int)
         if geocode_result is not None:    
             road_loc,road_int,suburb_int = geocode_result
-            self.formwritefields[current_tab_name]['road_int'].setText(road_int)
-            self.formwritefields[current_tab_name]['road_loc'].setText(road_loc)
+            if 'road_int' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['road_int'].setText(road_int)
+            if 'road_loc' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['road_loc'].setText(road_loc)
+            if 'street' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['street'].setText(road_int)
             if 'suburb_int' in self.formwritefields[current_tab_name]:
                 self.formwritefields[current_tab_name]['suburb_int'].setText(suburb_int)
         
@@ -1447,7 +1454,9 @@ table {
                 
                 function handleShowImageOnMap(button, imageId) {
                     backend.handle_ShowImageOnMap(imageId);
-                }      
+                    backend.handle_select_img(imageId);
+                }   
+                
                 function handleMacros1(button, imageId) {
                     backend.handleMacros1(imageId);
                     /* mark selected row */
