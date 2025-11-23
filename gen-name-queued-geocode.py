@@ -63,6 +63,16 @@ class Backend(QObject):
     @pyqtSlot(str)
     def handle_select_img_append(self, image_id):
         self.imgSelectedAppend.emit(str(image_id))        
+        
+    imgSelectedRangeBegin = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_range_begin(self, image_id):
+        self.imgSelectedRangeBegin.emit(str(image_id)) 
+        
+    imgSelectedRangeEnd = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_range_end(self, image_id):
+        self.imgSelectedRangeEnd.emit(str(image_id))        
 
     imgMacros1 = pyqtSignal(str)
     @pyqtSlot(str)
@@ -352,11 +362,15 @@ class FlickrBrowser(QWidget):
         
         self.lang_int = 'en'
         self.lang_loc = 'ru'
+        self.range_begin_id = None
+        self.range_end_id = None
 
         # Connect the signal to your method
         self.backend.imgSelected.connect(self.on_photo_select)
         self.backend.ShowImageOnMap.connect(self.ShowImageOnMap)
         self.backend.imgSelectedAppend.connect(self.on_photo_select_append)
+        self.backend.imgSelectedRangeBegin.connect(self.on_photo_select_range_begin)
+        self.backend.imgSelectedRangeEnd.connect(self.on_photo_select_range_end)
         self.backend.imgMacros1.connect(self.on_macros1)
         self.backend.mapClick.connect(self.on_mapclick)
 
@@ -514,7 +528,27 @@ table {
         self.wigets['geocode-queue'].setStyleSheet("background-color: "+self.palette[3])
         self.wigets['geocode-queue'].clicked.connect(self.process_geocode_queue)
         self.formlayouts['coords'].addWidget(self.wigets['geocode-queue'])
+        
+        self.wigets['remove-tags']=QPushButton("Remove tags on all displayed")
+        self.wigets['remove-tags'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['remove-tags'].clicked.connect(self.remove_tags)
+        self.formlayouts['coords'].addWidget(self.wigets['remove-tags'])
+        
+        self.wigets['add-tags-all']=QPushButton("Add tag to all displayed")
+        self.wigets['add-tags-all'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['add-tags-all'].clicked.connect(self.add_tags_all)
+        self.formlayouts['coords'].addWidget(self.wigets['add-tags-all'])
 
+        
+        self.wigets['add-tags-selected']=QPushButton("Add tag to selected")
+        self.wigets['add-tags-selected'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['add-tags-selected'].clicked.connect(self.add_tags_selected)
+        self.formlayouts['coords'].addWidget(self.wigets['add-tags-selected'])
+        
+        self.wigets['rename-selected']=QPushButton("Rename selected")
+        self.wigets['rename-selected'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['rename-selected'].clicked.connect(self.rename_selected)
+        self.formlayouts['coords'].addWidget(self.wigets['rename-selected'])
         
         
         
@@ -1155,6 +1189,84 @@ table {
             geocoderesults = self.geocode_call(data['destcoords'],lang_loc,lang_int,zoom)
             time.sleep(1.2)
             self.geocode_results[flickrid]=geocoderesults
+                
+    def add_tags_all(self):
+        if len(self.flickrimgs) < 1:
+            return       
+        text, ok = QInputDialog.getText(self, "Add tag to all displayed images", "Enter tag:")
+        if ok and text:
+            total=len(self.flickrimgs)
+            cnt = 0
+            for photo in self.flickrimgs:
+                cnt = cnt + 1
+                new_tags = self.escape4flickr_tag(text)
+                
+                self.statusBar.showMessage(f"add tag {new_tags} to {photo['id']} {cnt}/{total}")
+                self.flickr.photos.setTags(
+                photo_id=photo['id'],
+                tags=new_tags
+                )
+            self.statusBar.showMessage("")
+        else:
+            print("User cancelled or entered empty text.")
+            
+                
+    def add_tags_selected(self):
+        if len(self.selecteds_list) < 1:
+            return       
+        total=len(self.selecteds_list)
+        text, ok = QInputDialog.getText(self, f"Add tag to {total} selecteds images", "Enter tag:")
+        if ok and text:
+            
+            cnt = 0
+            for photo in self.selecteds_list:
+                cnt = cnt + 1
+                new_tags = self.escape4flickr_tag(text)
+                print(f"add tag {new_tags} to {photo} {cnt}/{total}")
+                self.flickr.photos.setTags(
+                photo_id=photo,
+                tags=new_tags
+                )
+        else:
+            print("User cancelled or entered empty text.")
+            
+                
+    def rename_selected(self):
+        if len(self.selecteds_list) < 1:
+            return       
+        total=len(self.selecteds_list)
+        text, ok = QInputDialog.getText(self, f"Rename {total} selecteds images", "Enter text:")
+        if ok and text:
+            
+            cnt = 0
+            for photo in self.selecteds_list:
+                cnt = cnt + 1
+                print(f"rename to {text} {photo} {cnt}/{total}")
+                self.flickr.photos.setMeta(
+                    photo_id=photo,
+                    title=text
+                )
+                
+        else:
+            print("User cancelled or entered empty text.")
+            
+    def remove_tags(self):
+        if len(self.flickrimgs) < 1:
+            return
+        total=len(self.flickrimgs)
+        cnt = 0
+        for photo in self.flickrimgs:
+            cnt = cnt + 1
+            params=dict()
+            params['photo_id']=photo['id']
+            photo_data = self.flickr.photos.getInfo(**params)
+            print(f"remove all tags on {params['photo_id']} {cnt}/{total}") 
+            for tag in photo_data['photo']['tags']['tag']:
+                params=dict()
+                params['tag_id'] = tag['id']
+                self.flickr.photos.removeTag(**params)
+            print('finished')
+            
             
     def on_geocode_reverse_address(self,zoom=19):
         # Configure geocoder with 1 req/sec limit
@@ -1259,7 +1371,7 @@ table {
        
         geocode_result = self.geocode_street(c,lang_loc,lang_int)
         if geocode_result is not None:    
-            road_loc,road_int,suburb_int = geocode_result
+            road_loc,road_int,suburb_int,city_int = geocode_result
             if 'road_int' in self.formwritefields[current_tab_name]:
                 self.formwritefields[current_tab_name]['road_int'].setText(road_int)
             if 'road_loc' in self.formwritefields[current_tab_name]:
@@ -1268,6 +1380,8 @@ table {
                 self.formwritefields[current_tab_name]['street'].setText(road_int)
             if 'suburb_int' in self.formwritefields[current_tab_name]:
                 self.formwritefields[current_tab_name]['suburb_int'].setText(suburb_int)
+            if 'city' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['city'].setText(city_int)
         
     def geocode_street(self,coords:str,lang_loc:str,lang_int:str):    
         geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
@@ -1291,8 +1405,9 @@ table {
         road_loc = geocoderesults['loc'].raw.get('address',{}).get('road','')
         road_int =translit( geocoderesults['int'].raw.get('address',{}).get('road',''),lang_loc,reversed=True)
         suburb_int =translit( geocoderesults['int'].raw.get('address',{}).get('suburb',''),lang_loc,reversed=True)
+        city_int =translit( geocoderesults['int'].raw.get('address',{}).get('city',''),lang_loc,reversed=True)
         
-        return road_loc, road_int,suburb_int
+        return road_loc, road_int,suburb_int,city_int
         
 
         
@@ -1303,8 +1418,7 @@ table {
         pass
     
     def search_photos(self,SORTMODE = 'datetaken',skip_if_namegenerated=True):
-        #self.get_photos_from_album('72177720327428694')
-        #return
+
         self.reset_search_results()
         trs=''
 
@@ -1370,7 +1484,9 @@ table {
 
         
         self.flickrimgs=list()
+        files_to_display = 0
         if len(result_list)==0:
+            
             self.info_search_noresults()
         else:
             if SORTMODE == 'datetaken':
@@ -1410,6 +1526,7 @@ table {
                     # for all mode all(elem in list2 for elem in list1)
 
                 trs+=self.gen_photo_row(photo)
+                self.flickrimgs.append(photo)
                 files_to_display = files_to_display + 1
         
         html="""<html>       <head>
@@ -1447,9 +1564,21 @@ table {
                 const tr = button.closest('tr');
                 tr.classList.remove('visited');
                 tr.classList.add('selected');
-
-                /* no update other rows */
-
+            }
+            
+            function handleSelectImgRangeBegin(button, imageId) {
+                backend.handle_select_img_range_begin(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+            }
+            function handleSelectImgRangeEnd(button, imageId) {
+                backend.handle_select_img_range_end(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
             }
                 
                 function handleShowImageOnMap(button, imageId) {
@@ -1495,7 +1624,6 @@ table {
         self.web_channel = QWebChannel()
         self.web_channel.registerObject("backend", self.backend)
         self.browser_main_table.page().setWebChannel(self.web_channel)
-        self.flickrimgs=result_list
 
 
     def info_search_noresults(self):
@@ -1508,14 +1636,17 @@ table {
         geo_text=''
         if photo['latitude']==0: 
             geo_text='🌍❌'
+        public_text = ''
+        if photo['ispublic'] == 0:
+            public_text = '🗄️'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
-        info = f'''{photo['title']}{geo_text} {photo['datetaken']} <br><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        info = f'''{photo['title']}{geo_text}{public_text}<br/><small>{photo['tags']}</small><br/>{photo['datetaken']} <br/><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
         info += ''' <a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
         geocodezoom=18
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
-        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to select</button><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to select</button> <button tabindex="-1" onclick="handleSelectImgRangeBegin(this,'{photo['id']}')">&lbrack;</button><button tabindex="-1" onclick="handleSelectImgRangeEnd(this,'{photo['id']}')">&rbrack;</button> <br/><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
 
     def openlayers_map_refresh(self,lat,lon):
@@ -1683,6 +1814,31 @@ initMap();
     def on_photo_select_append(self, photo_id):
         if photo_id not in self.selecteds_list:
             self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+
+    def on_photo_select_range_begin(self, photo_id):
+
+        self.range_begin_id = photo_id
+        self.range_select()
+    def on_photo_select_range_end(self, photo_id):
+
+        self.range_end_id = photo_id
+        self.range_select()
+    def range_select(self):
+        inrange = None
+        self.selecteds_list = list()
+        if self.range_begin_id is not None and self.range_end_id is not None:
+            for img in self.flickrimgs:
+                if img['id'] == self.range_begin_id: 
+                    inrange=True
+                if img['id'] == self.range_end_id: 
+                    inrange=False
+                    
+                if inrange:
+                    self.selecteds_list.append(img['id'])
+                if img['id'] == self.range_end_id:    
+                    self.selecteds_list.append(img['id'])
+                    
         self.selections_display_update()
     def deselect_photos(self):
         self.selecteds_list=list()
