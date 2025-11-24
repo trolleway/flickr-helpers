@@ -346,7 +346,7 @@ class Model():
         )
         
 
-class FlickrBrowser(QWidget):
+class FlickrBrowser(QMainWindow):
     def __init__(self,args):
         super().__init__()
         self.setWindowTitle("Flickr Image Browser")
@@ -458,10 +458,13 @@ table {
         return flickr
     
     def init_ui(self):
-        layout = QVBoxLayout()
+        widget = QWidget()
+        self.setCentralWidget(widget)
+        layout = QVBoxLayout(widget)
         middlelayout = QHBoxLayout()
         self.formcontainers = dict()
         self.formlayouts = dict()
+        self.statusBar().showMessage("Ready to search")
 
         # search panel
         self.search_formcontainer=QGroupBox('Search images on flickr')
@@ -533,6 +536,11 @@ table {
         self.wigets['remove-tags'].setStyleSheet("background-color: "+self.palette[6])
         self.wigets['remove-tags'].clicked.connect(self.remove_tags)
         self.formlayouts['coords'].addWidget(self.wigets['remove-tags'])
+        
+        self.wigets['make-public-all']=QPushButton("Open to public on all displayed")
+        self.wigets['make-public-all'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['make-public-all'].clicked.connect(self.make_public_all)
+        self.formlayouts['coords'].addWidget(self.wigets['make-public-all'])
         
         self.wigets['add-tags-all']=QPushButton("Add tag to all displayed")
         self.wigets['add-tags-all'].setStyleSheet("background-color: "+self.palette[6])
@@ -1034,6 +1042,8 @@ table {
     def on_write_changeset(self):
     
         if len(self.changeset)>0:
+            self.statusBar().showMessage("Writing "+str(len(self.changeset))+" changes on flickr")
+            QApplication.processEvents()   # forces GUI update
             for change in self.changeset:
                 try:
                     if change['textsdict']["preset"]== 'address':
@@ -1045,6 +1055,7 @@ table {
                 except:
                     continue
             self.changeset = list()
+            self.statusBar().showMessage("Ready")
         else:
             QMessageBox.warning(self, "Invalid data", "Make edits frist")
             
@@ -1208,7 +1219,7 @@ table {
                 )
             self.statusBar.showMessage("")
         else:
-            print("User cancelled or entered empty text.")
+            self.statusBar().showMessage("User cancelled or entered empty text.")
             
                 
     def add_tags_selected(self):
@@ -1222,13 +1233,13 @@ table {
             for photo in self.selecteds_list:
                 cnt = cnt + 1
                 new_tags = self.escape4flickr_tag(text)
-                print(f"add tag {new_tags} to {photo} {cnt}/{total}")
+                self.statusBar().showMessage(f"add tag {new_tags} to {photo} {cnt}/{total}")
                 self.flickr.photos.setTags(
                 photo_id=photo,
                 tags=new_tags
                 )
         else:
-            print("User cancelled or entered empty text.")
+            self.statusBar().showMessage("User cancelled or entered empty text.")
             
                 
     def rename_selected(self):
@@ -1241,14 +1252,15 @@ table {
             cnt = 0
             for photo in self.selecteds_list:
                 cnt = cnt + 1
+                self.statusBar().showMessage(f"rename to {text} {photo} {cnt}/{total}")
                 print(f"rename to {text} {photo} {cnt}/{total}")
                 self.flickr.photos.setMeta(
                     photo_id=photo,
                     title=text
                 )
-                
+            self.statusBar().showMessage("Rename finished")    
         else:
-            print("User cancelled or entered empty text.")
+            self.statusBar().showMessage("User cancelled or entered empty text.")
             
     def remove_tags(self):
         if len(self.flickrimgs) < 1:
@@ -1260,12 +1272,32 @@ table {
             params=dict()
             params['photo_id']=photo['id']
             photo_data = self.flickr.photos.getInfo(**params)
-            print(f"remove all tags on {params['photo_id']} {cnt}/{total}") 
+            self.statusBar().showMessage(f"remove all tags on {params['photo_id']} {cnt}/{total}") 
             for tag in photo_data['photo']['tags']['tag']:
                 params=dict()
                 params['tag_id'] = tag['id']
                 self.flickr.photos.removeTag(**params)
-            print('finished')
+            self.statusBar().showMessage('finished')
+            
+            
+    def make_public_all(self):
+        if len(self.flickrimgs) < 1:
+            return
+        total=len(self.flickrimgs)
+        cnt = 0
+        for photo in self.flickrimgs:
+            cnt = cnt + 1
+            if photo['ispublic'] == 1: continue
+            self.flickr.photos.setPerms(
+                photo_id=photo['id'],
+                is_public=1,
+                is_friend=0,
+                is_family=0,
+                perm_comment=3,  # Anyone can comment
+                perm_addmeta=2   # Contacts can add tags/notes
+            )
+            self.statusBar().showMessage(f"set public {photo['id']} {cnt}/{total}") 
+            print(f"set public {photo['id']} {cnt}/{total}") 
             
             
     def on_geocode_reverse_address(self,zoom=19):
