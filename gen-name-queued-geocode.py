@@ -1805,6 +1805,10 @@ initMap();
         
 
     def on_photo_select(self, photo_id):
+        
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+        
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
@@ -1812,8 +1816,10 @@ initMap();
 
         for img in self.flickrimgs: 
             if img['id'] == photo_id:
-                #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
-                
+                if 'venue_int' in self.formwritefields[current_tab_name]:
+                    self.formwritefields[current_tab_name]['venue_int'].setText('')
+ 
+                                
                 lat = img.get('latitude')
                 lon = img.get('longitude')
                 self.wigets['coords'].setText(f"{lat},{lon}")
