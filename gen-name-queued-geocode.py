@@ -1454,7 +1454,7 @@ table {
         self.reset_search_results()
         trs=''
 
-        params = {"extras": "date_taken,tags,geo,url_o"}
+        params = {"extras": "date_taken,tags,geo,url_o,url_k"}
         for key, widget in self.inputs_search.items():
             val = widget.text().strip()
             if key == 'exclude':
@@ -1665,6 +1665,7 @@ table {
 
         image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
         image_url_o = f"{photo['url_o']}"
+        image_url_k = photo.get('url_k')
         geo_text=''
         if photo['latitude']==0: 
             geo_text='🌍❌'
@@ -1673,10 +1674,11 @@ table {
             public_text = '🗄️'
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text}{public_text}<br/><small>{photo['tags']}</small><br/>{photo['datetaken']} <br/><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        if image_url_k is not None: info += ''' <a href="{image_url_k}" tabindex="-1">K size</a>'''
         info += ''' <a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
         geocodezoom=18
         if photo['latitude']!=0:
-            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=en&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
         tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to select</button> <button tabindex="-1" onclick="handleSelectImgRangeBegin(this,'{photo['id']}')">&lbrack;</button><button tabindex="-1" onclick="handleSelectImgRangeEnd(this,'{photo['id']}')">&rbrack;</button> <br/><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
         return tr
