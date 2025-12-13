@@ -3,10 +3,10 @@ import flickrapi
 import config
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QScrollArea, QSplitter, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy,QSpacerItem, QFileDialog
+    QPushButton, QCheckBox, QScrollArea, QSplitter, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy, QFileDialog
     
 )
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QPixmap,QKeySequence,QShortcut
 from PyQt6.QtCore import Qt
 from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
@@ -19,7 +19,8 @@ from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QDesktopServices
 
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtCore import QObject, pyqtSlot, QUrl, Qt
+from PyQt6.QtCore import QObject, pyqtSlot, QUrl, Qt, QSettings, QCoreApplication
+
 
 
 import requests
@@ -40,7 +41,8 @@ import time
 
 
     
-
+QCoreApplication.setOrganizationName("trolleway")
+QCoreApplication.setApplicationName("flickr-helper")
 
 class Backend(QObject):
     imgSelected = pyqtSignal(str)
@@ -98,7 +100,8 @@ class ExternalLinkPage(QWebEnginePage):
     
 class Model():
 
-
+    published_since_start = 0
+    
     def more_tags_process(self,input_string):
         # Remove leading/trailing spaces
         trimmed = input_string.strip()
@@ -132,7 +135,8 @@ class Model():
                 perm_comment=3,  # Anyone can comment
                 perm_addmeta=2   # Contacts can add tags/notes
             )
-            print("Privacy changed to public.")
+            self.published_since_start = self.published_since_start + 1
+            print(f"Privacy changed to public. {self.published_since_start} image since start")
 
         # Step 3: Update photo metadata
 
@@ -353,12 +357,15 @@ class FlickrBrowser(QMainWindow):
         self.model = Model()
         self.args = args
 
+        self.settings = QSettings() 
         self.selecteds_list = list()
         
         self.backend = Backend()
         self.changeset = list()
         self.geocode_queue = dict()
         self.geocode_results = dict()
+        
+        self.dest_point_by_flickrid = dict()
         
         self.lang_int = 'en'
         self.lang_loc = 'ru'
@@ -373,6 +380,8 @@ class FlickrBrowser(QMainWindow):
         self.backend.imgSelectedRangeEnd.connect(self.on_photo_select_range_end)
         self.backend.imgMacros1.connect(self.on_macros1)
         self.backend.mapClick.connect(self.on_mapclick)
+        
+        self.load_settings()
 
         
         #https://colorbrewer2.org/?type=qualitative&scheme=Paired&n=8
@@ -519,6 +528,7 @@ table {
         self.wigets['coords'] = QLineEdit()
         self.formlayouts['coords'].addWidget(QLabel('image coordinates:'))
         self.formlayouts['coords'].addWidget(self.wigets['coords'])
+        
         self.wigets['dest_coords'] = QLineEdit()
         self.formlayouts['coords'].addWidget(QLabel('destination coordinates:'))
         self.formlayouts['coords'].addWidget(self.wigets['dest_coords'])
@@ -527,6 +537,13 @@ table {
         self.wigets['coords-loadfromflickr'].clicked.connect(self.on_load_coord)
         self.formlayouts['coords'].addWidget(self.wigets['coords-loadfromflickr'])
         
+        self.wigets['set-dest-coord']=QPushButton("Set dest coord")
+        self.wigets['set-dest-coord'].setStyleSheet("background-color: "+self.palette[3])
+        self.wigets['set-dest-coord'].clicked.connect(self.set_dest_coord)
+        self.formlayouts['coords'].addWidget(self.wigets['set-dest-coord'])
+        self.shortcut_set_dest_coord = QShortcut(QKeySequence('F4'), self)
+        self.shortcut_set_dest_coord.activated.connect(self.wigets['set-dest-coord'].click)
+                
         self.wigets['geocode-queue']=QPushButton("Process geocode queue")
         self.wigets['geocode-queue'].setStyleSheet("background-color: "+self.palette[3])
         self.wigets['geocode-queue'].clicked.connect(self.process_geocode_queue)
@@ -558,7 +575,19 @@ table {
         self.wigets['rename-selected'].clicked.connect(self.rename_selected)
         self.formlayouts['coords'].addWidget(self.wigets['rename-selected'])
         
+
+        #filters panel
+        '''
+        self.filter_formcontainer=QGroupBox('Filters')
+        layout.addWidget(self.filter_formcontainer)
+        self.filter_formcontainer_layout = QHBoxLayout()
+        self.filter_formcontainer.setLayout(self.filter_formcontainer_layout)
+        self.filters_checkbox_has_dest = QCheckBox("Has dest")
+        self.filters_checkbox_no_dest = QCheckBox("No dest")
         
+        self.filter_formcontainer_layout.addWidget(self.filters_checkbox_has_dest)
+        self.filter_formcontainer_layout.addWidget(self.filters_checkbox_no_dest)
+        '''
         
         #selection panel
         self.selectedimgs_formcontainer=QGroupBox('Selected images')
@@ -571,8 +600,12 @@ table {
         self.deselect_photos_button = QPushButton("Deselect all")
         self.deselect_photos_button.clicked.connect(self.deselect_photos)
         self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
-
-
+        
+        self.filters_checkbox_has_dest = QCheckBox("Has dest")
+        self.filters_checkbox_no_dest = QCheckBox("No dest")
+        self.selectedimgs_formcontainer_layout.addWidget(self.filters_checkbox_has_dest)
+        self.selectedimgs_formcontainer_layout.addWidget(self.filters_checkbox_no_dest)
+        self.selectedimgs_formcontainer_layout.addStretch(1)
 
         # display browser panel
         self.browser_main_table = QWebEngineView()
@@ -810,7 +843,7 @@ table {
                 form_layout.addRow(":", self.numlookup_buttons['tram']['number'])
             if label=='route':
                 self.routelookup_buttons['tram']=dict()
-                self.routelookup_buttons['tram']['number']=QPushButton("⇪ take num and route from name prefix ⇪")
+                self.routelookup_buttons['tram']['number']=QPushButton("⇪ take num route model from name prefix ⇪")
                 self.routelookup_buttons['tram']['number'].clicked.connect(self.on_prefixlookup)
                 form_layout.addRow(":", self.routelookup_buttons['tram']['number'])
                 
@@ -1088,7 +1121,7 @@ table {
                     if img['id'] == flickrid:                      
                         import re
 
-                        regex = r"_(?:r|м)(\d+)(?:_[^.]+)?$"
+                        regex = r"-(?:r|м)(\d+)(?:-[^.]+)?$"
                         test_str = img['title']
                         route=''
 
@@ -1103,7 +1136,8 @@ table {
                             route = None
                 
                         self.formwritefields[current_tab_name]['route'].setText(route)
-                        return
+                        
+            return
               
 
     def escape4flickr_tag(self,text):
@@ -1188,7 +1222,24 @@ table {
         if not geocoderesults['int']:
             return  None
         return geocoderesults
-    
+    def load_settings(self):
+        self.dest_point_by_flickrid = self.settings.value("dest_point_by_flickrid")
+        if self.dest_point_by_flickrid is None:
+            self.dest_point_by_flickrid = dict()
+        
+    def save_settings(self):
+        self.settings.setValue("dest_point_by_flickrid", self.dest_point_by_flickrid)
+        
+    def set_dest_coord(self):
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                coords = self.wigets['dest_coords'].text().strip()
+                if coords != '':
+                    lat,lon=coords.split(',')
+
+                    self.dest_point_by_flickrid[flickrid]=(lat,lon)
+        self.save_settings()
+                    
     def process_geocode_queue(self):
         if len(self.geocode_queue) < 1:
             return
@@ -1532,10 +1583,17 @@ table {
             
             files_to_display=0
             for photo in result_list:
-                #for photo in sorted(photos["photos"]["photo"], key=lambda d: d['datetaken']):
-                 
+                
+                # filtering 
                 if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
                     continue
+                if self.filters_checkbox_has_dest.isChecked():
+                    if photo['id'] not in self.dest_point_by_flickrid:
+                        continue
+                if self.filters_checkbox_no_dest.isChecked():
+                    if photo['id'] in self.dest_point_by_flickrid:
+                        continue
+                       
                 if len(exclude_tags) > 0:
                     if ',' in exclude_tags:
                         etl=exclude_tags.split(',')
@@ -1672,11 +1730,14 @@ table {
         public_text = ''
         if photo['ispublic'] == 0:
             public_text = '🗄️'
+        if photo['id'] in self.dest_point_by_flickrid:
+            geo_text+="🔹👈"
         photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
         info = f'''{photo['title']}{geo_text}{public_text}<br/><small>{photo['tags']}</small><br/>{photo['datetaken']} <br/><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
         if image_url_k is not None: info += ''' <a href="{image_url_k}" tabindex="-1">K size</a>'''
         info += ''' <a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
         geocodezoom=18
+        info += ''' <a href="https://ya.ru/images/search?rpt=imageview&url='''+photo['url_o']+'''">Yandex image query</a></br>'''
         if photo['latitude']!=0:
             info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=en&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
         
@@ -1825,6 +1886,8 @@ initMap();
                 lat = img.get('latitude')
                 lon = img.get('longitude')
                 self.wigets['coords'].setText(f"{lat},{lon}")
+                if photo_id in self.dest_point_by_flickrid:
+                    self.wigets['dest_coords'].setText(f"{self.dest_point_by_flickrid[photo_id][0]},{self.dest_point_by_flickrid[photo_id][1]}")
                 
                     
     def ShowImageOnMap(self, photo_id):
@@ -1918,5 +1981,5 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     window = FlickrBrowser(args)
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec())
