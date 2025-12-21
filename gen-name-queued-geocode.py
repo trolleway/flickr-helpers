@@ -540,8 +540,10 @@ table {
         self.wigets['set-dest-coord']=QPushButton("Set dest coord")
         self.wigets['set-dest-coord'].setStyleSheet("background-color: "+self.palette[3])
         self.wigets['set-dest-coord'].clicked.connect(self.set_dest_coord)
+        shortcut_text=QKeySequence('Enter').toString()
+        self.wigets['set-dest-coord'].setToolTip(f"Shortcut: {shortcut_text}")
         self.formlayouts['coords'].addWidget(self.wigets['set-dest-coord'])
-        self.shortcut_set_dest_coord = QShortcut(QKeySequence('F4'), self)
+        self.shortcut_set_dest_coord = QShortcut(QKeySequence('Enter'), self)
         self.shortcut_set_dest_coord.activated.connect(self.wigets['set-dest-coord'].click)
                 
         self.wigets['geocode-queue']=QPushButton("Process geocode queue")
@@ -927,7 +929,7 @@ table {
                 self.geocode_rev_buttons['address'].setStyleSheet("background-color: "+self.palette[6])
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
                
-            if label=='dest_coordinates':
+            if label=='dest':
                 self.loaddestcoords_buttons['address']=QPushButton("⇪ take destination coordinates from image originals ⇪")
                 self.loaddestcoords_buttons['address'].clicked.connect(self.on_load_dest_coord)
                 form_layout.addRow(":", self.loaddestcoords_buttons['address'])
@@ -1088,7 +1090,7 @@ table {
                 except:
                     continue
             self.changeset = list()
-            self.statusBar().showMessage("Ready")
+            self.statusBar().showMessage("Changes has writen. Ready")
         else:
             QMessageBox.warning(self, "Invalid data", "Make edits frist")
             
@@ -1146,8 +1148,9 @@ table {
         return text
     
     def on_macros1(self):
-        self.on_load_dest_coord()
         self.on_geocode_reverse_address()
+        self.on_changeset_add()
+        self.on_write_changeset()
     
     def on_macros2(self):
         self.on_geocode_reverse_address()
@@ -1200,7 +1203,7 @@ table {
                         source_image_record = self.images_coordinates_from_local_folder.get(dt)
                         if source_image_record is not None:
                             if 'gps_dest_latitude' in  source_image_record and 'gps_dest_longitude' in source_image_record: 
-                                self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
+                                
                                 self.wigets['dest_coords'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
                         return
            
@@ -1572,12 +1575,15 @@ table {
             
             self.info_search_noresults()
         else:
+            SORTMODE = 'title'
             if SORTMODE == 'datetaken':
                 result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             elif SORTMODE == 'lon':
                 result_list = sorted(result_list, key=lambda x: float(x["longitude"]), reverse=False)
             elif SORTMODE == 'lat':
                 result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=True)
+            elif SORTMODE == 'title':
+                result_list = sorted(result_list, key=lambda x: x["title"], reverse=False)
             else:
                 result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             
@@ -1888,6 +1894,7 @@ initMap();
                 self.wigets['coords'].setText(f"{lat},{lon}")
                 if photo_id in self.dest_point_by_flickrid:
                     self.wigets['dest_coords'].setText(f"{self.dest_point_by_flickrid[photo_id][0]},{self.dest_point_by_flickrid[photo_id][1]}")
+                self.on_load_dest_coord()    
                 
                     
     def ShowImageOnMap(self, photo_id):
