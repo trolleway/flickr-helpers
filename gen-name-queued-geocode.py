@@ -1198,7 +1198,7 @@ table {
                             dt = dt.replace(tzinfo=None)
 
                         if self.images_coordinates_from_local_folder is None:
-                            self.formwritefields[current_tab_name]['dest_coordinates'].setText('no loaded folder')
+                            self.wigets['dest_coords'].setText('no loaded folder')
                             return
                         source_image_record = self.images_coordinates_from_local_folder.get(dt)
                         if source_image_record is not None:
@@ -1575,7 +1575,7 @@ table {
             
             self.info_search_noresults()
         else:
-            SORTMODE = 'title'
+            SORTMODE = 'datetaken'
             if SORTMODE == 'datetaken':
                 result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
             elif SORTMODE == 'lon':
