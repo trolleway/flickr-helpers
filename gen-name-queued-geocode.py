@@ -1224,6 +1224,7 @@ table {
             return None                       
         if not geocoderesults['int']:
             return  None
+        print(geocoderesults)    
         return geocoderesults
     def load_settings(self):
         self.dest_point_by_flickrid = self.settings.value("dest_point_by_flickrid")
