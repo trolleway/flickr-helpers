@@ -133,7 +133,10 @@ def main():
             if args.preset == 'wikicommons':
                 tds=photo['datetaken'].replace(':','')
                 suffix=str(i).zfill(2)
-                name = f"{photo['title'].replace('/','')[0:40]}_{tds}_flickr{photo['id']}__suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
+                title=photo['title']
+                if '/' in title:
+                    title=title[:title.find('/')]
+                name = f"{title[0:40]}_{tds}_flickr{photo['id']}__suffix{suffix}"+os.path.splitext(photo['url_o'])[-1] 
                 name = name.replace(' ','_')
             elif args.preset == 'shutterstock':
                 try:
