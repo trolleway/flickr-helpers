@@ -163,6 +163,8 @@ def main():
                 print('tagged as posted, skip '+photo['url_o']+ 'try to remove if already downloaded')
                 if os.path.isfile(filepath): os.remove(filepath)
                 continue
+            if 'nonpublic' in photo['tags']:
+                continue
             download_photo(photo['url_o'], filepath, args.overwrite)
 
 if __name__ == "__main__":

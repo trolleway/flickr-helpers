@@ -359,6 +359,7 @@ class FlickrBrowser(QMainWindow):
 
         self.settings = QSettings() 
         self.selecteds_list = list()
+        self.image_source_dirpath = ''
         
         self.backend = Backend()
         self.changeset = list()
@@ -577,6 +578,10 @@ table {
         self.wigets['rename-selected'].clicked.connect(self.rename_selected)
         self.formlayouts['coords'].addWidget(self.wigets['rename-selected'])
         
+        self.wigets['reset-cache']=QPushButton("Res cache")
+        self.wigets['reset-cache'].setStyleSheet("background-color: "+self.palette[1])
+        self.wigets['reset-cache'].clicked.connect(self.invalidate_cache)
+        self.formlayouts['coords'].addWidget(self.wigets['reset-cache'])        
 
         #filters panel
         '''
@@ -615,7 +620,6 @@ table {
         # do not focus on frist href after html set
         self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        #self.browser_main_table.page().settings().setAttribute(QWebEnginePage.WebAttribute.FocusOnNavigationEnabled, False)
         middlelayout.addWidget(self.browser_main_table)
         self.browser_main_table.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for search result</h1>""", QUrl("qrc:/"))
         
@@ -690,14 +694,17 @@ table {
         directory = QFileDialog.getExistingDirectory(
             self,
             "Choose folder with original images with dest coordinates",
-            "",                              # starting directory
-            QFileDialog.Option.ShowDirsOnly  # only folders
+            
+            directory=self.image_source_dirpath,
+            options = QFileDialog.Option.ShowDirsOnly
         )
         if directory:
             # store the path in a self variable
             self.gps_dest_folder = directory
             # (optional) print or update UI
             print("Chosen folder:", self.gps_dest_folder)
+            self.image_source_dirpath = directory
+            self.save_settings()
             
         assert os.path.isdir(self.gps_dest_folder)
         self.images_coordinates_from_local_folder = self.read_images_dest_from_dir(self.gps_dest_folder)
@@ -1223,16 +1230,17 @@ table {
         if not geocoderesults['loc']:
             return None                       
         if not geocoderesults['int']:
-            return  None
-        print(geocoderesults)    
+            return  None    
         return geocoderesults
     def load_settings(self):
         self.dest_point_by_flickrid = self.settings.value("dest_point_by_flickrid")
         if self.dest_point_by_flickrid is None:
             self.dest_point_by_flickrid = dict()
+        self.image_source_dirpath = self.settings.value("image_source_dirpath")
         
     def save_settings(self):
         self.settings.setValue("dest_point_by_flickrid", self.dest_point_by_flickrid)
+        self.settings.setValue("image_source_dirpath", self.image_source_dirpath)
         
     def set_dest_coord(self):
         if len(self.selecteds_list)>0:
@@ -1356,13 +1364,9 @@ table {
             
             
     def on_geocode_reverse_address(self,zoom=19):
-        # Configure geocoder with 1 req/sec limit
-
-
+        
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
-        
-        
 
         if len(self.selecteds_list)>0:
             for flickrid in self.selecteds_list:
@@ -1377,6 +1381,7 @@ table {
                         if 'zoom' in self.formwritefields[current_tab_name]:
                             zoom=self.formwritefields[current_tab_name]['zoom'].text().strip()
                         if dest_coords_str != '' and ',' in dest_coords_str: 
+
                             coords = dest_coords_str
                         
                         lang_loc = self.lang_loc
@@ -1458,6 +1463,7 @@ table {
        
         geocode_result = self.geocode_street(c,lang_loc,lang_int)
         if geocode_result is not None:    
+            print(f"{geocode_result=}")
             road_loc,road_int,suburb_int,city_int = geocode_result
             if 'road_int' in self.formwritefields[current_tab_name]:
                 self.formwritefields[current_tab_name]['road_int'].setText(road_int)
@@ -1476,7 +1482,7 @@ table {
         if coords != '' and ',' in coords: 
             coords = coords
         else:
-            return 'set dest coords frist','set dest coords frist'
+            return 'set dest coords frist','set dest coords frist','set dest coords frist','set dest coords frist'
         
         geocoderesults={}
         try:
@@ -1494,6 +1500,7 @@ table {
         suburb_int =translit( geocoderesults['int'].raw.get('address',{}).get('suburb',''),lang_loc,reversed=True)
         city_int =translit( geocoderesults['int'].raw.get('address',{}).get('city',''),lang_loc,reversed=True)
         
+
         return road_loc, road_int,suburb_int,city_int
         
 
@@ -1594,6 +1601,10 @@ table {
                 # filtering 
                 if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
                     continue
+                if ('duplicate' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                    continue
+                if ('nonpublic' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                    continue                    
                 if self.filters_checkbox_has_dest.isChecked():
                     if photo['id'] not in self.dest_point_by_flickrid:
                         continue
@@ -1961,6 +1972,9 @@ initMap();
                 self.browser_main_table.page().runJavaScript(js)
                 
         self.selections_display_update()
+    def invalidate_cache(self):
+        self.geocode_results = dict()
+
     def selections_display_update(self):
         if len(self.selecteds_list)>0:
             self.selections_label.setText( '<a href="https://www.flickr.com/photos/organize/?ids='+ ','.join(self.selecteds_list)+'">'+ str(len(self.selecteds_list))+' image(s) '+'</a> ')
