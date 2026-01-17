@@ -446,6 +446,14 @@ table {
         self.init_ui()
         self.flickr = self.authenticate_flickr()
         self.flickrimgs=list()
+        if self.args.min_taken_date is not None:self.search_photos()
+        
+        if self.args.sources_path is not None:
+            directory =  self.args.sources_path
+            if os.path.isdir(directory):
+                self.gps_dest_folder = directory
+                self.image_source_dirpath = directory
+                self.images_coordinates_from_local_folder = self.read_images_dest_from_dir(self.gps_dest_folder)
           
 
 
@@ -1995,6 +2003,7 @@ if __name__ == "__main__":
     parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
     parser.add_argument("--per_page", type=int, default=500, help="per page param for flickr search api", required=False)
     parser.add_argument("--exclude", type=str, help="exclude these tags from search. separator is , ") 
+    parser.add_argument("--sources_path", help="path to directory with image sources with GPS Dest coordinates for geocoding")
     
 
 

@@ -1,133 +1,109 @@
-import sys
-from datetime import datetime, timedelta
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QLineEdit, QPushButton, QLabel)
-from PyQt6.QtWebEngineWidgets import QWebEngineView
 import flickrapi
 import config
 
-# Replace these with your actual Flickr API Key and Secret
-# Get them from: https://www.flickr.com/services/api/keys/
+import os
 
-
-class FlickrApp(QMainWindow):
+class Processor():
     def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Flickr Private Photo Viewer (2026)")
-        self.resize(1000, 700)
-
-        # Initialize Flickr API
-        # flickrapi handles OAuth; it will open a browser for first-time auth
-        self.flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
-        self.flickr.authenticate_via_browser(perms='write')
-
-        # UI Layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-
-        # Control Panel
-        controls = QHBoxLayout()
-        self.date_input = QLineEdit()
-        self.date_input.setPlaceholderText("YYYY-MM-DD")
-        self.date_input.setText(datetime.now().strftime("%Y-%m-%d"))
-        
-        self.search_btn = QPushButton("Display images")
-        self.search_btn.clicked.connect(self.load_photos)
-        
-        controls.addWidget(QLabel("Date Taken:"))
-        controls.addWidget(self.date_input)
-        controls.addWidget(self.search_btn)
-        layout.addLayout(controls)
-
-        # WebEngine View for HTML Output
-        self.web_view = QWebEngineView()
-        layout.addWidget(self.web_view)
-
-    def load_photos(self):
-        date_str = self.date_input.text()
-        try:
-            # Prepare date range for the specific day
-            start_dt = datetime.strptime(date_str, "%Y-%m-%d")
-            end_dt = start_dt + timedelta(days=1)
+        self.flickr = self.authenticate_flickr()
+    
+    def authenticate_flickr(self):
+        flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
+        if not flickr.token_cache.token:
+            flickr.get_request_token(oauth_callback='oob')
+            auth_url = flickr.auth_url(perms='write')
             
-            # Format dates for Flickr (MySQL datetime format)
-            # Reference: 
+
+            # inside authenticate_flickr() method
+            webbrowser.open(auth_url)
+            #QMessageBox.information(self, "Authorization", "Your browser has been opened to authorize this app.")
+
+            verifier, ok = QInputDialog.getText(self, "Enter Verifier", "Paste the verifier code from the browser:")
+            if not ok or not verifier:
+                QMessageBox.warning(self, "Authorization Failed", "No verifier entered. Cannot proceed.")
+                return
+            flickr.get_access_token(verifier)
+        return flickr
+    
+    def images_list_to_visual(self,images):
+        text=''
+        sdict={0:'-',1:'+',None:'x'}
+        for image in images:
+            text = text + sdict(image.get('mark',None))
             
-            min_taken = start_dt.strftime('%Y-%m-%d 00:00:00')
-            max_taken = end_dt.strftime('%Y-%m-%d 00:00:00')
-
-            # Search calling user's photos (user_id='me' requires auth)
-            # Including private photos via authentication
-            response = self.flickr.photos.search(
-                user_id='me',
-                min_taken_date=min_taken,
-                max_taken_date=max_taken,
-                extras='url_s,date_taken,tags,geo'
-            )
-
-            photos = response.get('photos', {}).get('photo', [])
-            self.display_html_namegenerated(photos, date_str)
-
-        except ValueError:
-            self.web_view.setHtml("<h3>Error: Invalid date format. Use YYYY-MM-DD.</h3>")
-        except Exception as e:
-            self.web_view.setHtml(f"<h3>API Error: {str(e)}</h3>")
-
-    def display_html_thumbs(self, photos, date_str):
-        if not photos:
-            html = f"<h3>No photos found for {date_str}</h3>"
-        else:
-            html = f"<h2>Photos taken on {date_str}</h2><ul style='list-style:none;'>"
-            for p in photos:
-                img_url = p.get('url_s', '') # Small image URL
-                title = p.get('title', 'Untitled')
-                taken = p.get('datetaken', '')
-                html += f"""
-                <li style='margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;'>
-                    <img src='{img_url}' style='max-width: 240px; display: block;' />
-                    <strong>{title}</strong><br/>
-                    <small>Taken: {taken}</small>
-                </li>
-                """
-            html += "</ul>"
+        return text
+    
+    def info_search_noresults(self):
+        print('no result')
+    def dashboard_namegenerated(self,date:str,days:int=1):
+        params = {"extras": "date_taken,tags,geo,url_o,url_k"}
         
-        self.web_view.setHtml(html)
+        raw_date = date
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    date = datetime.strptime(raw_date, fmt)
+                    break
+                except ValueError:
+                    continue
+        params["min_taken_date"] = date
+        next_day = date + timedelta(days=int(days))
+        params["max_taken_date"] = next_day.strftime("%Y-%m-%d %H:%M:%S")
+        params["user_id"] = self.flickr.test.login()['user']['id']
+        params['sort']='date-taken-asc'
+        params['per_page']=500
+        params['content_types']='0'
+        photos = self.flickr.photos.search(**params)
+        result_list = list()
+        gonextpage=True
+        page_counter=0
+        while(gonextpage):
+            page_counter = page_counter+1
+            params['page']=page_counter
+            photos = self.flickr.photos.search(**params)
 
-    def display_html_namegenerated(self, photos, date_str):
-        if not photos:
-            html = f"<h3>No photos found for {date_str}</h3>"
-        else:
-            html = f"<h2>Photos taken on {date_str}</h2><table>"
-            for p in photos:
-                img_url = p.get('url_s', '') # Small image URL
-                title = p.get('title', 'Untitled')
-                namegenerated='namegenerated' in p.get('tags','')
-                if namegenerated == True:
-                    marknamegenerated='✅'
-                else:
-                    marknamegenerated='❌'
-                if p.get('latitude'):
-                    markgeo='✅'
-                else:
-                    markgeo='❌'
-                taken = p.get('datetaken', '')
-                html += f"<tr><td>{title}</td><td>{marknamegenerated}</td><td>{markgeo}</td></tr>"
-                '''
-                html += f"""
-                <li style='margin-bottom: 20px; border-bottom: 1px solid #ccc; padding-bottom: 10px;'>
-                    <img src='{img_url}' style='max-width: 240px; display: block;' />
-                    <strong>{title} {namegenerated}</strong><br/>
-                    <small>Taken: {taken}</small>
-                </li>
-                """
-                '''
-            html += "</table>"
+            result_list_page=photos["photos"]["photo"]
+            result_list=result_list+result_list_page
+            gonextpage=False
+            if len(result_list_page)>0 and photos['photos']['pages']>page_counter:
+                gonextpage=True
         
-        self.web_view.setHtml(html)
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = FlickrApp()
-    window.show()
-    sys.exit(app.exec())
+
+        files_to_display = 0
+        if len(result_list)==0:
+            
+            self.info_search_noresults()
+        else:
+            SORTMODE = 'datetaken'
+            if SORTMODE == 'datetaken':
+                result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+            elif SORTMODE == 'lon':
+                result_list = sorted(result_list, key=lambda x: float(x["longitude"]), reverse=False)
+            elif SORTMODE == 'lat':
+                result_list = sorted(result_list, key=lambda x: float(x["latitude"]), reverse=True)
+            elif SORTMODE == 'title':
+                result_list = sorted(result_list, key=lambda x: x["title"], reverse=False)
+            else:
+                result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+        
+        images_list_output = list()
+        for photo in result_list:
+                
+            # filtering 
+            if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                continue
+            if ('duplicate' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                continue
+            if ('nonpublic' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                continue                    
+            if self.filters_checkbox_has_dest.isChecked():
+                if photo['id'] not in self.dest_point_by_flickrid:
+                    continue
+            if self.filters_checkbox_no_dest.isChecked():
+                if photo['id'] in self.dest_point_by_flickrid:
+                    continue
+                
+            if 'namegenerated' in photo['tags']:
+                photo['mark']=1
+            else:
+                photo['mark']=0
+            images_list_output.append(photo)
