@@ -1,12 +1,280 @@
+import sys
 import flickrapi
 import config
-
-import os
-
-class Processor():
-    def __init__(self):
-        self.flickr = self.authenticate_flickr()
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QMainWindow, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QCheckBox, QScrollArea, QSplitter, QMessageBox,QInputDialog, QTabWidget,QFormLayout,QGroupBox,QSizePolicy, QFileDialog
     
+)
+from PyQt6.QtGui import QPixmap,QKeySequence,QShortcut
+from PyQt6.QtCore import Qt
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from PyQt6.QtCore import QRunnable, QThreadPool, pyqtSignal, QObject
+from datetime import datetime, timedelta
+import webbrowser
+import argparse
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtGui import QDesktopServices
+
+from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtCore import QObject, pyqtSlot, QUrl, Qt, QSettings, QCoreApplication
+
+
+
+import requests
+
+
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+
+import pywikibot
+import requests
+from typing import Optional
+import re
+from transliterate import translit, get_available_language_codes
+import os
+from PIL import Image
+from PIL.ExifTags import TAGS
+import time
+
+
+    
+QCoreApplication.setOrganizationName("trolleway")
+QCoreApplication.setApplicationName("flickr-helper")
+
+class Backend(QObject):
+    imgSelected = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img(self, image_id):
+        try:
+            self.imgSelected.emit(str(image_id))
+        except:
+            pass
+        
+    ShowImageOnMap = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_ShowImageOnMap(self, image_id):
+        try:
+            self.ShowImageOnMap.emit(str(image_id))
+        except:
+            pass
+        
+    imgSelectedAppend = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_append(self, image_id):
+        self.imgSelectedAppend.emit(str(image_id))        
+        
+    imgSelectedRangeBegin = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_range_begin(self, image_id):
+        self.imgSelectedRangeBegin.emit(str(image_id)) 
+        
+    imgSelectedRangeEnd = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_select_img_range_end(self, image_id):
+        self.imgSelectedRangeEnd.emit(str(image_id))        
+
+    imgMacros1 = pyqtSignal(str)
+    @pyqtSlot(str)
+    def handle_handleMacros1(self, image_id):
+        self.imgMacros1.emit(str(image_id))  
+    mapClick = pyqtSignal(float,float)     
+    @pyqtSlot(float, float)
+    def olimageClicked(self, lat, lon):
+        self.mapClick.emit(float(lat),float(lon))
+
+    # Signals used by the map JavaScript; add placeDestination so JS can connect to it
+    placeMarker = pyqtSignal(float, float, str)
+    placeDestination = pyqtSignal(float, float)
+    clearMarkers = pyqtSignal()    
+
+class ExternalLinkPage(QWebEnginePage):
+    def acceptNavigationRequest(self, url, _type, isMainFrame):
+        if _type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+            QDesktopServices.openUrl(url)
+            return False
+        return super().acceptNavigationRequest(url, _type, isMainFrame)
+    
+    
+class Model():
+
+    published_since_start = 0
+    
+    def more_tags_process(self,input_string):
+        # Remove leading/trailing spaces
+        trimmed = input_string.strip()
+
+        # Check for empty or all-space input
+        if not trimmed:
+            return []
+
+        # Check if input contains commas
+        if ',' in trimmed:
+            return [tag.strip() for tag in trimmed.split(',')]
+
+        # Otherwise, return as a single-element list with stripped string
+        return [trimmed]
+
+    def address_image_flickr_update(self,flickr, photo_id, textsdict):
+
+        # https://flickr.com/photos/trolleway/51052666337
+
+        # Step 1: Get current photo info
+        info = flickr.photos.getInfo(photo_id=photo_id)
+        visibility = info['photo']['visibility']
+
+        # Step 2: Check and update privacy if needed
+        if visibility.get('ispublic') == 0:
+            flickr.photos.setPerms(
+                photo_id=photo_id,
+                is_public=1,
+                is_friend=0,
+                is_family=0,
+                perm_comment=3,  # Anyone can comment
+                perm_addmeta=2   # Contacts can add tags/notes
+            )
+            self.published_since_start = self.published_since_start + 1
+            print(f"Privacy changed to public. {self.published_since_start} image since start")
+
+        # Step 3: Update photo metadata
+
+
+       
+        newname = str(textsdict.get('name',''))
+        desc = str(textsdict.get('desc','')).strip()
+        new_tags = str(textsdict.get('tags',''))
+            
+        if textsdict.get('more_tags','') != '':
+            new_tags += ', '
+            new_tags+=' '.join(self.more_tags_process(textsdict.get('more_tags','')))
+        if new_tags[0]==',': new_tags=new_tags[1:]
+            
+        new_tags += ', namegenerated'
+
+        flickr.photos.setMeta(
+            photo_id=photo_id,
+            title=newname,
+            description = desc
+        )
+
+        # Step 4: Update tags
+        flickr.photos.setTags(
+            photo_id=photo_id,
+            tags=new_tags
+        )
+
+
+class FlickrBrowser(QMainWindow):
+    def __init__(self,args):
+        super().__init__()
+        self.setWindowTitle("Flickr Image Browser")
+        self.model = Model()
+        self.args = args
+
+        self.settings = QSettings() 
+        self.selecteds_list = list()
+        self.image_source_dirpath = ''
+        
+        self.backend = Backend()
+        self.changeset = list()
+        self.geocode_queue = dict()
+        self.geocode_results = dict()
+        
+        self.dest_point_by_flickrid = dict()
+        
+        self.lang_int = 'en'
+        self.lang_loc = 'ru'
+        self.range_begin_id = None
+        self.range_end_id = None
+
+        # Connect the signal to your method
+        self.backend.imgSelected.connect(self.on_photo_select)
+        self.backend.ShowImageOnMap.connect(self.ShowImageOnMap)
+        self.backend.imgSelectedAppend.connect(self.on_photo_select_append)
+        self.backend.imgSelectedRangeBegin.connect(self.on_photo_select_range_begin)
+        self.backend.imgSelectedRangeEnd.connect(self.on_photo_select_range_end)
+        self.backend.imgMacros1.connect(self.on_macros1)
+        self.backend.mapClick.connect(self.on_mapclick)
+        
+        self.load_settings()
+
+        
+        #https://colorbrewer2.org/?type=qualitative&scheme=Paired&n=8
+        
+        self.palette_num=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00']
+        self.colors={'automatic':'#ff7f00','macros':'#fdbf6f','write':'#e31a1c'}
+
+        
+        self.css='''        body {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #444;
+            padding: 4px;
+            text-align: left;
+        }
+        th {
+            background-color: #333;
+        }
+        a {
+            color: #ffcc00;
+        }
+        
+        td.monospace {font-family: monospace;}
+
+        
+        img {
+    transition: transform 0.5s ease-in-out;
+}
+
+img:hover {
+    transform: scale(1.1);
+}
+
+/* fade in */
+table {
+    opacity: 0;
+    animation: fadeIn 1s ease-in forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.localphoto { width: 400px;}
+/* mark selected rows */
+    .selected { background-color: orange; }
+    .visited  { background-color: darkgray; }
+    tr { transition: background-color 3.2s ease; }
+
+        
+        '''
+        self.nominatim_keys=['country','state','county','city','village','hamlet','town','suburb','neighbourhood','road','house_number','name']
+        self.gps_dest_folder = None
+        self.images_coordinates_from_local_folder = None
+        self.init_ui()
+        self.flickr = self.authenticate_flickr()
+        self.flickrimgs=list()
+        if self.args.min_taken_date is not None:self.search_photos()
+        
+        if self.args.sources_path is not None:
+            directory =  self.args.sources_path
+            if os.path.isdir(directory):
+                self.gps_dest_folder = directory
+                self.image_source_dirpath = directory
+                self.images_coordinates_from_local_folder = self.read_images_dest_from_dir(self.gps_dest_folder)
+          
+
+
     def authenticate_flickr(self):
         flickr = flickrapi.FlickrAPI(config.API_KEY, config.API_SECRET, format='parsed-json')
         if not flickr.token_cache.token:
@@ -25,34 +293,747 @@ class Processor():
             flickr.get_access_token(verifier)
         return flickr
     
-    def images_list_to_visual(self,images):
-        text=''
-        sdict={0:'-',1:'+',None:'x'}
-        for image in images:
-            text = text + sdict(image.get('mark',None))
+    def init_ui(self):
+        widget = QWidget()
+        self.setCentralWidget(widget)
+        layout = QVBoxLayout(widget)
+        middlelayout = QHBoxLayout()
+        self.formcontainers = dict()
+        self.formlayouts = dict()
+        self.statusBar().showMessage("Ready to search")
+
+        # search panel
+        self.search_formcontainer=QGroupBox('Search images on flickr')
+        layout.addWidget(self.search_formcontainer)
+        self.search_formcontainer_layout = QHBoxLayout()
+        self.search_formcontainer.setLayout(self.search_formcontainer_layout)
+        # Input fields
+        self.inputs_search = {}
+        fields = ["tags", "tag_mode", "exclude", "min_taken_date", "max_taken_date","days","per_page"]
+        for field in fields:
+            row = QHBoxLayout()
+            label = QLabel(field)
+            edit = QLineEdit()
+            if hasattr(self.args, field) and getattr(self.args, field) is not None:
+                edit.setText(str(getattr(self.args, field)))
+            self.inputs_search[field] = edit
+            row.addWidget(label)
+            row.addWidget(edit)
+            self.search_formcontainer_layout.addLayout(row)
+
+        self.inputs_search["tag_mode"].setPlaceholderText("all or any")
+        #self.inputs_search["per_page"].setText(str(50))
+
+        #self.inputs_search["days"].setPlaceholderText("number")
+        #self.inputs_search["page"].setPlaceholderText("1")
+        self.search_btn = QPushButton("Search")
+        self.search_btn.clicked.connect(self.search_photos)
+        self.search_formcontainer_layout.addWidget(self.search_btn)
+        
+        # select folder on disk to get GPS Destination
+        self.formcontainers['gpsdest'] = QGroupBox('Select folder with source image files for get destination coordinates')
+        self.formlayouts['gpsdest'] = QHBoxLayout()
+        self.formcontainers['gpsdest'].setLayout(self.formlayouts['gpsdest'])
+        layout.addWidget(self.formcontainers['gpsdest'])
+        
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self.select_gpsdest_directory)
+        self.formlayouts['gpsdest'].addWidget(browse_btn)
+        
+
+        # select folder on disk to get GPS Destination
+        self.formcontainers['coords'] = QGroupBox('Coords')
+        self.formlayouts['coords'] = QHBoxLayout()
+        self.formcontainers['coords'].setLayout(self.formlayouts['coords'])
+        layout.addWidget(self.formcontainers['coords'])
+        browse_btn2 = QPushButton("Select folder with source image files for get destination coordinates")
+        browse_btn2.clicked.connect(self.select_gpsdest_directory)
+        self.formlayouts['coords'].addWidget(browse_btn2)
+        
+        self.wigets = dict()
+        
+        self.wigets['coords'] = QLineEdit()
+        self.formlayouts['coords'].addWidget(QLabel('image coordinates:'))
+        self.formlayouts['coords'].addWidget(self.wigets['coords'])
+        
+        self.wigets['dest_coords'] = QLineEdit()
+        self.formlayouts['coords'].addWidget(QLabel('destination coordinates:'))
+        self.formlayouts['coords'].addWidget(self.wigets['dest_coords'])
+
+        self.wigets['coords-loadfromflickr']=QPushButton("Load coords from Flickr")
+        self.wigets['coords-loadfromflickr'].clicked.connect(self.on_load_coord)
+        self.formlayouts['coords'].addWidget(self.wigets['coords-loadfromflickr'])
+        
+        self.wigets['set-dest-coord']=QPushButton("Set dest coord")
+        self.wigets['set-dest-coord'].setStyleSheet("background-color: "+self.palette_num[3])
+        self.wigets['set-dest-coord'].clicked.connect(self.set_dest_coord)
+        shortcut_text=QKeySequence('Enter').toString()
+        self.wigets['set-dest-coord'].setToolTip(f"Shortcut: {shortcut_text}")
+        self.formlayouts['coords'].addWidget(self.wigets['set-dest-coord'])
+        self.shortcut_set_dest_coord = QShortcut(QKeySequence('Enter'), self)
+        self.shortcut_set_dest_coord.activated.connect(self.wigets['set-dest-coord'].click)
+                
+        self.wigets['geocode-queue']=QPushButton("Process geocode queue")
+        self.wigets['geocode-queue'].setStyleSheet("background-color: "+self.palette_num[3])
+        self.wigets['geocode-queue'].clicked.connect(self.process_geocode_queue)
+        self.formlayouts['coords'].addWidget(self.wigets['geocode-queue'])
+        
+        self.wigets['remove-tags']=QPushButton("Remove tags on all displayed")
+        self.wigets['remove-tags'].setStyleSheet("background-color: "+self.palette_num[6])
+        self.wigets['remove-tags'].clicked.connect(self.remove_tags)
+        self.formlayouts['coords'].addWidget(self.wigets['remove-tags'])
+        
+        self.wigets['make-public-all']=QPushButton("Open to public on all displayed")
+        self.wigets['make-public-all'].setStyleSheet("background-color: "+self.palette_num[6])
+        self.wigets['make-public-all'].clicked.connect(self.make_public_all)
+        self.formlayouts['coords'].addWidget(self.wigets['make-public-all'])
+        
+        self.wigets['add-tags-all']=QPushButton("Add tag to all displayed")
+        self.wigets['add-tags-all'].setStyleSheet("background-color: "+self.palette_num[6])
+        self.wigets['add-tags-all'].clicked.connect(self.add_tags_all)
+        self.formlayouts['coords'].addWidget(self.wigets['add-tags-all'])
+
+        
+        self.wigets['add-tags-selected']=QPushButton("Add tag to selected")
+        self.wigets['add-tags-selected'].setStyleSheet("background-color: "+self.palette_num[6])
+        self.wigets['add-tags-selected'].clicked.connect(self.add_tags_selected)
+        self.formlayouts['coords'].addWidget(self.wigets['add-tags-selected'])
+        
+        self.wigets['rename-selected']=QPushButton("Rename selected")
+        self.wigets['rename-selected'].setStyleSheet("background-color: "+self.palette_num[6])
+        self.wigets['rename-selected'].clicked.connect(self.rename_selected)
+        self.formlayouts['coords'].addWidget(self.wigets['rename-selected'])
+        
+        self.wigets['reset-cache']=QPushButton("Res cache")
+        self.wigets['reset-cache'].setStyleSheet("background-color: "+self.palette_num[1])
+        self.wigets['reset-cache'].clicked.connect(self.invalidate_cache)
+        self.formlayouts['coords'].addWidget(self.wigets['reset-cache'])        
+
+        #filters panel
+        '''
+        self.filter_formcontainer=QGroupBox('Filters')
+        layout.addWidget(self.filter_formcontainer)
+        self.filter_formcontainer_layout = QHBoxLayout()
+        self.filter_formcontainer.setLayout(self.filter_formcontainer_layout)
+        self.filters_checkbox_has_dest = QCheckBox("Has dest")
+        self.filters_checkbox_no_dest = QCheckBox("No dest")
+        
+        self.filter_formcontainer_layout.addWidget(self.filters_checkbox_has_dest)
+        self.filter_formcontainer_layout.addWidget(self.filters_checkbox_no_dest)
+        '''
+        
+        #selection panel
+        self.selectedimgs_formcontainer=QGroupBox('Selected images')
+        layout.addWidget(self.selectedimgs_formcontainer)
+        self.selectedimgs_formcontainer_layout = QHBoxLayout()
+        self.selectedimgs_formcontainer.setLayout(self.selectedimgs_formcontainer_layout)
+        self.selections_label=QLabel()
+        self.selections_label.setWordWrap(True)
+        self.selectedimgs_formcontainer_layout.addWidget(self.selections_label)
+        self.deselect_photos_button = QPushButton("Deselect all")
+        self.deselect_photos_button.clicked.connect(self.deselect_photos)
+        self.selectedimgs_formcontainer_layout.addWidget(self.deselect_photos_button)
+        
+        self.filters_checkbox_has_dest = QCheckBox("Has dest")
+        self.filters_checkbox_no_dest = QCheckBox("No dest")
+        self.selectedimgs_formcontainer_layout.addWidget(self.filters_checkbox_has_dest)
+        self.selectedimgs_formcontainer_layout.addWidget(self.filters_checkbox_no_dest)
+        self.selectedimgs_formcontainer_layout.addStretch(1)
+
+        # display browser panel
+        self.browser_main_table = QWebEngineView()
+        self.browser_main_table.setFixedHeight(650)
+        # do not focus on frist href after html set
+        self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        middlelayout.addWidget(self.browser_main_table)
+        self.browser_main_table.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for search result</h1>""", QUrl("qrc:/"))
+        
+        self.mappicker = QWebEngineView()
+        self.mappicker.setFixedHeight(self.browser_main_table.height())
+        self.mappicker.setMaximumWidth(450)
+        # do not focus on frist href after html set
+        self.mappicker.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        middlelayout.addWidget(self.mappicker)
+        self.mappicker.setHtml("""<html><body><style>"""+self.css+"""</style><h1>wait for select image</h1>""", QUrl("qrc:/"))
+        
+               
+        # texts form
+        self.formtab=QTabWidget()
+        middlelayout.addWidget(self.formtab)
+        self.formtab.setFixedWidth(400)
+        layout.addLayout(middlelayout)
+        
+        
+        # Create form tabs
+        self.routelookup_buttons = {}
+        self.geolookup_buttons = {}
+        self.numlookup_buttons = {}
+        self.geocode_rev_buttons = {}
+        self.loaddestcoords_buttons = {}
+        self.loadcoords_buttons = {}
+        self.macros_buttons = {}
+        self.formwritefields = {}
+
+     
+        self.formlayouts['footer_buttons'] = QHBoxLayout()
+        
+        self.geocoding_queue_add_btn = QPushButton("Add to geocoding queue")
+        self.geocoding_queue_add_btn.setStyleSheet("background-color: "+self.colors['macros'])
+        self.geocoding_queue_add_btn.clicked.connect(self.on_geocode_queue_add)
+        self.formlayouts['footer_buttons'].addWidget(self.geocoding_queue_add_btn) 
+        
+        self.changeset_add_btn = QPushButton("Add to changeset")
+        self.changeset_add_btn.setStyleSheet("background-color: "+self.colors['macros'])
+        self.changeset_add_btn.clicked.connect(self.on_changeset_add)
+        self.formlayouts['footer_buttons'].addWidget(self.changeset_add_btn)
+        
+        self.changeset_write_btn = QPushButton("Write changeset")
+        self.changeset_write_btn.setStyleSheet("background-color: "+self.colors['write'])
+        self.changeset_write_btn.clicked.connect(self.on_write_changeset)
+        self.formlayouts['footer_buttons'].addWidget(self.changeset_write_btn)
+        layout.addLayout(self.formlayouts['footer_buttons'])
+        
+
+        
+        self.setLayout(layout)
+        
+    def select_gpsdest_directory(self):
+        # Show only directories
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Choose folder with original images with dest coordinates",
             
+            directory=self.image_source_dirpath,
+            options = QFileDialog.Option.ShowDirsOnly
+        )
+        if directory:
+            # store the path in a self variable
+            self.gps_dest_folder = directory
+            # (optional) print or update UI
+            print("Chosen folder:", self.gps_dest_folder)
+            self.image_source_dirpath = directory
+            self.save_settings()
+            
+        assert os.path.isdir(self.gps_dest_folder)
+        self.images_coordinates_from_local_folder = self.read_images_dest_from_dir(self.gps_dest_folder)
+        pass
+
+        
+        
+
+
+        
+
+
+    def on_geocode_queue_add(self):
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                self.geocode_queue[flickrid]={'destcoords':self.wigets['dest_coords'].text().strip(),'preset':self.formtab.tabText(self.formtab.currentIndex())}
+        
+    
+    def on_changeset_add(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+
+        textsdict = {field: widget.text() for field, widget in self.formwritefields[current_tab_name].items()}
+        flickrid=''
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                self.changeset.append({'id':flickrid, 'textsdict':textsdict})
+            self.deselect_photos()
+        else:
+            QMessageBox.warning(self, "Invalid data", "Select photo frist")
+        
+        
+    def on_write_changeset(self):
+    
+        if len(self.changeset)>0:
+            self.statusBar().showMessage("Writing "+str(len(self.changeset))+" changes on flickr")
+            QApplication.processEvents()   # forces GUI update
+            for change in self.changeset:
+                try:
+                    if change['textsdict']["preset"]== 'address':
+                        self.model.address_image_flickr_update(self.flickr, change['id'], change['textsdict'])       
+                    elif change['textsdict']["preset"]== 'street':
+                        self.model.street_image_flickr_update(self.flickr, change['id'], change['textsdict'])   
+                    else:
+                        self.model.transport_image_flickr_update(self.flickr, change['id'], change['textsdict'])
+                except:
+                    continue
+            self.changeset = list()
+            self.statusBar().showMessage("Changes has writen. Ready")
+        else:
+            QMessageBox.warning(self, "Invalid data", "Make edits frist")
+            
+    
+
+    def on_prefixlookup(self):
+        self.on_numlookup()
+        self.on_routelookup()   
+    def on_numlookup(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        text=img['title']
+                        text = text.replace('_',' ')
+                        text = text[:text.find(' ')]
+                        self.formwritefields[current_tab_name]['number'].setText(text)
+                        return
+           
+    def on_routelookup(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:                      
+                        import re
+
+                        regex = r"[_-](?:r|м)(\d+)(?:-[^.]+)?$"
+                        test_str = img['title']
+                        route=''
+
+                        matches = re.finditer(regex, test_str, re.MULTILINE)
+                        for match in matches:
+                            result = match.group(1)
+                            if "eplace" in result:
+                                continue
+                            route = result
+                            del result
+                        if route == "z":
+                            route = None
+                
+                        self.formwritefields[current_tab_name]['route'].setText(route)
+                        
+            return
+              
+
+    def escape4flickr_tag(self,text):
+        if ' ' in text:
+            text = '"'+text+'"'
         return text
     
-    def info_search_noresults(self):
-        print('no result')
-    def dashboard_namegenerated(self,date:str,days:int=1):
-        params = {"extras": "date_taken,tags,geo,url_o,url_k"}
+    def on_macros1(self):
+        self.on_geocode_reverse_address()
+        self.on_changeset_add()
+        self.on_write_changeset()
+    
+    def on_macros2(self):
+        self.on_geocode_reverse_address()
+        self.on_changeset_add()
+    
+    def on_macros3(self):
+        self.on_geocode_reverse_address()
+        self.on_changeset_add()
+        self.on_write_changeset()
+    
+
+     
+                   
+    def on_mapclick(self,lat,lon):
+        self.wigets['dest_coords'].setText(f"{lat},{lon}")
+ 
+    def on_load_coord(self):
+        from dateutil import parser
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        if 'dest_coordinates' in  self.formwritefields[current_tab_name]:
+                            self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                        self.wigets['coords'].setText(f"{img['latitude']},{img['longitude']}")
+                        return
+           
+           
+    def on_load_dest_coord(self):
+        from dateutil import parser
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        #dt = parser.parse(img.get('datetaken').replace(":", "-", 2))
+                        dt = parser.parse(img.get('datetaken'))
+                        dt = dt.replace(microsecond=0)
+                        if dt.tzinfo:
+                            dt = dt.replace(tzinfo=None)
+
+                        if self.images_coordinates_from_local_folder is None:
+                            self.wigets['dest_coords'].setText('no loaded folder')
+                            return
+                        source_image_record = self.images_coordinates_from_local_folder.get(dt)
+                        if source_image_record is not None:
+                            if 'gps_dest_latitude' in  source_image_record and 'gps_dest_longitude' in source_image_record: 
+                                
+                                self.wigets['dest_coords'].setText(f"{source_image_record['gps_dest_latitude']},{source_image_record['gps_dest_longitude']}")
+                        return
+           
+           
+
+                        
+                        
+    def geocode_call(self,coords,lang_loc,lang_int,zoom):
+        geocoderesults={}
+        geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.2)
+        try:
+            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=zoom)
+            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=zoom)
+        except:
+            return None
+        if not geocoderesults['loc']:
+            return None                       
+        if not geocoderesults['int']:
+            return  None    
+        return geocoderesults
+    def load_settings(self):
+        self.dest_point_by_flickrid = self.settings.value("dest_point_by_flickrid")
+        if self.dest_point_by_flickrid is None:
+            self.dest_point_by_flickrid = dict()
+        self.image_source_dirpath = self.settings.value("image_source_dirpath")
         
-        raw_date = date
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-                try:
-                    date = datetime.strptime(raw_date, fmt)
-                    break
-                except ValueError:
-                    continue
-        params["min_taken_date"] = date
-        next_day = date + timedelta(days=int(days))
-        params["max_taken_date"] = next_day.strftime("%Y-%m-%d %H:%M:%S")
+    def save_settings(self):
+        self.settings.setValue("dest_point_by_flickrid", self.dest_point_by_flickrid)
+        self.settings.setValue("image_source_dirpath", self.image_source_dirpath)
+        
+    def set_dest_coord(self):
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                coords = self.wigets['dest_coords'].text().strip()
+                if coords != '':
+                    lat,lon=coords.split(',')
+
+                    self.dest_point_by_flickrid[flickrid]=(lat,lon)
+        self.save_settings()
+                    
+    def process_geocode_queue(self):
+        if len(self.geocode_queue) < 1:
+            return
+        lang_loc = self.lang_loc
+        lang_int = self.lang_int
+        zoom=19
+        self.geocode_results = dict()
+        for flickrid,data in self.geocode_queue.items():
+            geocoderesults = self.geocode_call(data['destcoords'],lang_loc,lang_int,zoom)
+            time.sleep(1.2)
+            self.geocode_results[flickrid]=geocoderesults
+                
+    def add_tags_all(self):
+        if len(self.flickrimgs) < 1:
+            return       
+        text, ok = QInputDialog.getText(self, "Add tag to all displayed images", "Enter tag:")
+        if ok and text:
+            total=len(self.flickrimgs)
+            cnt = 0
+            for photo in self.flickrimgs:
+                cnt = cnt + 1
+                new_tags = self.escape4flickr_tag(text)
+                
+                self.statusBar.showMessage(f"add tag {new_tags} to {photo['id']} {cnt}/{total}")
+                self.flickr.photos.setTags(
+                photo_id=photo['id'],
+                tags=new_tags
+                )
+            self.statusBar.showMessage("")
+        else:
+            self.statusBar().showMessage("User cancelled or entered empty text.")
+            
+                
+    def add_tags_selected(self):
+        if len(self.selecteds_list) < 1:
+            return       
+        total=len(self.selecteds_list)
+        text, ok = QInputDialog.getText(self, f"Add tag to {total} selecteds images", "Enter tag:")
+        if ok and text:
+            
+            cnt = 0
+            for photo in self.selecteds_list:
+                cnt = cnt + 1
+                new_tags = self.escape4flickr_tag(text)
+                self.statusBar().showMessage(f"add tag {new_tags} to {photo} {cnt}/{total}")
+                self.flickr.photos.setTags(
+                photo_id=photo,
+                tags=new_tags
+                )
+        else:
+            self.statusBar().showMessage("User cancelled or entered empty text.")
+            
+                
+    def rename_selected(self):
+        if len(self.selecteds_list) < 1:
+            return       
+        total=len(self.selecteds_list)
+        text, ok = QInputDialog.getText(self, f"Rename {total} selecteds images", "Enter text:")
+        if ok and text:
+            
+            cnt = 0
+            for photo in self.selecteds_list:
+                cnt = cnt + 1
+                self.statusBar().showMessage(f"rename to {text} {photo} {cnt}/{total}")
+                print(f"rename to {text} {photo} {cnt}/{total}")
+                self.flickr.photos.setMeta(
+                    photo_id=photo,
+                    title=text
+                )
+            self.statusBar().showMessage("Rename finished")    
+        else:
+            self.statusBar().showMessage("User cancelled or entered empty text.")
+            
+    def remove_tags(self):
+        if len(self.flickrimgs) < 1:
+            return
+        total=len(self.flickrimgs)
+        cnt = 0
+        for photo in self.flickrimgs:
+            cnt = cnt + 1
+            params=dict()
+            params['photo_id']=photo['id']
+            photo_data = self.flickr.photos.getInfo(**params)
+            self.statusBar().showMessage(f"remove all tags on {params['photo_id']} {cnt}/{total}") 
+            for tag in photo_data['photo']['tags']['tag']:
+                params=dict()
+                params['tag_id'] = tag['id']
+                self.flickr.photos.removeTag(**params)
+            self.statusBar().showMessage('finished')
+            
+            
+    def make_public_all(self):
+        if len(self.flickrimgs) < 1:
+            return
+        total=len(self.flickrimgs)
+        cnt = 0
+        for photo in self.flickrimgs:
+            cnt = cnt + 1
+            if photo['ispublic'] == 1: continue
+            self.flickr.photos.setPerms(
+                photo_id=photo['id'],
+                is_public=1,
+                is_friend=0,
+                is_family=0,
+                perm_comment=3,  # Anyone can comment
+                perm_addmeta=2   # Contacts can add tags/notes
+            )
+            self.statusBar().showMessage(f"set public {photo['id']} {cnt}/{total}") 
+            print(f"set public {photo['id']} {cnt}/{total}") 
+            
+            
+    def on_geocode_reverse_address(self,zoom=19):
+        
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+
+        if len(self.selecteds_list)>0:
+            for flickrid in self.selecteds_list:
+                for img in self.flickrimgs: 
+                    if img['id'] == flickrid:
+                        
+                        # lookup
+                        lat = float(img['latitude'])
+                        lon = float(img['longitude'])
+                        coords = (lat,lon)
+                        dest_coords_str = self.wigets['dest_coords'].text().strip()
+                        if 'zoom' in self.formwritefields[current_tab_name]:
+                            zoom=self.formwritefields[current_tab_name]['zoom'].text().strip()
+                        if dest_coords_str != '' and ',' in dest_coords_str: 
+
+                            coords = dest_coords_str
+                        
+                        lang_loc = self.lang_loc
+                        lang_int = self.lang_int
+                        
+                        if flickrid in self.geocode_results:
+                            geocoderesults = self.geocode_results[flickrid]
+                        else:
+                            geocoderesults = self.geocode_call(coords,lang_loc,lang_int,zoom)
+                            self.geocode_results[flickrid]=geocoderesults
+                        if geocoderesults is None:
+                            return
+                        replaces={'int':{},'loc':{}}
+                        for key in self.nominatim_keys:
+                            
+                            replaces['loc'][key]=geocoderesults['loc'].raw.get('address',{}).get(key,'')
+                            
+                            
+                            if lang_loc in get_available_language_codes():
+                                replaces['int'][key]=translit(geocoderesults['int'].raw.get('address',{}).get(key,''),lang_loc,reversed=True)
+                                replaces['int'][key] = replaces['int'][key].replace("'",'')
+                            else:
+                                replaces['int'][key]=geocoderesults['int'].raw.get('address',{}).get(key,'')
+                        
+                        # venue
+                        replaces['int']['venue']=self.formwritefields[current_tab_name]['venue_int'].text()
+                        
+                        # name
+                        fmt=self.formwritefields[current_tab_name]['name_template'].text()
+                        txt=fmt
+                        for fld,val in replaces['int'].items():
+                            txt = txt.replace('{'+fld+'_int}',val)
+                        for fld,val in replaces['loc'].items():
+                            txt = txt.replace('{'+fld+'_loc}',val)
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt)
+                        self.formwritefields[current_tab_name]['name'].setText(txt)
+                        
+                        # desc
+                        fmt=self.formwritefields[current_tab_name]['desc_template'].text()
+                        txt=fmt
+                        for fld,val in replaces['int'].items():
+                            txt = txt.replace('{'+fld+'_int}',val)
+                        for fld,val in replaces['loc'].items():
+                            txt = txt.replace('{'+fld+'_loc}',val)
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt)
+                        self.formwritefields[current_tab_name]['desc'].setText(txt)
+                        
+                        # tags
+                        fmt=self.formwritefields[current_tab_name]['tags_template'].text()
+                        txt=fmt
+                        txt = txt.strip()
+                        txt = re.sub(' +', ' ', txt) #merge multiple space to single space
+                        
+                        for fld,val in replaces['int'].items():
+                            txt = txt.replace('{'+fld+'_int}',self.escape4flickr_tag(val))
+                            if 'district' in val.lower():
+                                txt = txt +','+ self.escape4flickr_tag(val.lower().replace('district','').strip())
+                        for fld,val in replaces['loc'].items():
+                            txt = txt.replace('{'+fld+'_loc}',self.escape4flickr_tag(val))
+                        txt = re.sub(',+', ',', txt) #merge multiple , to single ,
+                        self.formwritefields[current_tab_name]['tags'].setText(txt)
+                        
+                        # trying userflow 2: 3 fields
+                        self.formwritefields[current_tab_name]['city_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('city',''))
+                        self.formwritefields[current_tab_name]['district_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('suburb',''))
+                        self.formwritefields[current_tab_name]['road_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('road',''))
+                        self.formwritefields[current_tab_name]['housenumber'].setText(geocoderesults['loc'].raw.get('address',{}).get('housenumber',''))
+        
+    def on_geocode_reverse_street(self):
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+        lang_loc = self.lang_loc
+        lang_int = self.lang_int
+        
+        c = ''
+        c = self.wigets['dest_coords'].text().strip()
+        if c == '':
+            c = self.wigets['coords'].text().strip()
+            if c == '':
+                QMessageBox.warning(self, "no coordinates", "click on map to get street name")
+                return
+       
+        geocode_result = self.geocode_street(c,lang_loc,lang_int)
+        if geocode_result is not None:    
+            print(f"{geocode_result=}")
+            road_loc,road_int,suburb_int,city_int = geocode_result
+            if 'road_int' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['road_int'].setText(road_int)
+            if 'road_loc' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['road_loc'].setText(road_loc)
+            if 'street' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['street'].setText(road_int)
+            if 'suburb_int' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['suburb_int'].setText(suburb_int)
+            if 'city' in self.formwritefields[current_tab_name]:
+                self.formwritefields[current_tab_name]['city'].setText(city_int)
+        
+    def geocode_street(self,coords:str,lang_loc:str,lang_int:str):    
+        geolocator = Nominatim(user_agent="trolleway_image_names_geocode", timeout=10)
+        geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.2)
+        if coords != '' and ',' in coords: 
+            coords = coords
+        else:
+            return 'set dest coords frist','set dest coords frist','set dest coords frist','set dest coords frist'
+        
+        geocoderesults={}
+        try:
+            geocoderesults['loc'] = geolocator.reverse(coords,exactly_one=True,language=lang_loc,addressdetails=True,zoom=16)
+            geocoderesults['int'] = geolocator.reverse(coords,exactly_one=True,language=lang_int,addressdetails=True,zoom=16)
+        except:
+            return
+        if not geocoderesults['loc']:
+            return                        
+        if not geocoderesults['int']:
+            return
+        
+        road_loc = geocoderesults['loc'].raw.get('address',{}).get('road','')
+        road_int =translit( geocoderesults['int'].raw.get('address',{}).get('road',''),lang_loc,reversed=True)
+        suburb_int =translit( geocoderesults['int'].raw.get('address',{}).get('suburb',''),lang_loc,reversed=True)
+        city_int =translit( geocoderesults['int'].raw.get('address',{}).get('city',''),lang_loc,reversed=True)
+        
+
+        return road_loc, road_int,suburb_int,city_int
+        
+
+        
+
+
+    def reset_search_results(self):
+        self.browser_main_table.setHtml('''<html><body><h1>wait for query execute</h1>''', QUrl("qrc:/"))
+        pass
+    
+    def search_photos(self,SORTMODE = 'datetaken',skip_if_namegenerated=False, skip_if_hidden = True):
+
+        self.reset_search_results()
+        trs=''
+
+        params = {"extras": "date_taken,tags,geo,url_o,url_k,views"}
+        for key, widget in self.inputs_search.items():
+            val = widget.text().strip()
+            if key == 'exclude':
+                exclude_tags = val
+                continue
+            if val:
+                params[key] = val
+        
+        tags4query=params.get('tags','')
+        #params.pop("tags", None)
+
+        # Add logic for "interval" (if max not given)
+        if "min_taken_date" in params and "max_taken_date" not in params:
+            try:
+                raw_date = params["min_taken_date"]
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        date = datetime.strptime(raw_date, fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    raise ValueError("Invalid date format")
+
+                if 'days' in params:
+                    next_day = date + timedelta(days=int(params['days']))
+                    params["max_taken_date"] = next_day.strftime("%Y-%m-%d %H:%M:%S")
+
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Date", "Use format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+                return
+
+
+
         params["user_id"] = self.flickr.test.login()['user']['id']
         params['sort']='date-taken-asc'
-        params['per_page']=500
+        params['per_page']=int(params['per_page'])
+        #params['page'] = 1
         params['content_types']='0'
+
+        #params['page']=1
+
         photos = self.flickr.photos.search(**params)
+        #result_list=photos["photos"]["photo"]
+        
         result_list = list()
         gonextpage=True
         page_counter=0
@@ -68,6 +1049,8 @@ class Processor():
                 gonextpage=True
         
 
+        
+        self.flickrimgs=list()
         files_to_display = 0
         if len(result_list)==0:
             
@@ -84,26 +1067,437 @@ class Processor():
                 result_list = sorted(result_list, key=lambda x: x["title"], reverse=False)
             else:
                 result_list = sorted(result_list, key=lambda x: x["datetaken"], reverse=False)
+            
+            files_to_display=0
+            for photo in result_list:
+                
+                # filtering 
+                if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                    continue
+                if ('duplicate' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                    continue
+                if ('nonpublic' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
+                    continue   
+                if photo.get('ispublic')==0 and skip_if_hidden:
+                    continue                 
+                if self.filters_checkbox_has_dest.isChecked():
+                    if photo['id'] not in self.dest_point_by_flickrid:
+                        continue
+                if self.filters_checkbox_no_dest.isChecked():
+                    if photo['id'] in self.dest_point_by_flickrid:
+                        continue
+                       
+                if len(exclude_tags) > 0:
+                    if ',' in exclude_tags:
+                        etl=exclude_tags.split(',')
+                    else:
+                        etl=list()
+                        etl.append(exclude_tags)
+                    tags4search=list()
+                    tags4search=[tag.strip().strip('"') for tag in photo['tags'].split(' ')]
+                    if any(elem in etl for elem in tags4search):
+                        continue                 
+
+                if tags4query != '':
+                    tags4search=list()
+                    tags4search=[tag.strip().strip('"') for tag in photo['tags'].split(' ')]
+                    if not any(elem in tags4query for elem in tags4search):
+                        continue
+                    if photo['tags']=='':
+                        continue
+
+                    # for all mode all(elem in list2 for elem in list1)
+                getcontextssearch = dict()
+                getcontextssearch['photo_id'] = int(photo['id'])
+
+
+                
+                photo_context = self.flickr.photos.getAllContexts(**getcontextssearch)
+
+                trs+=self.gen_photo_row(photo,photo_context)
+                self.flickrimgs.append(photo)
+                files_to_display = files_to_display + 1
         
-        images_list_output = list()
-        for photo in result_list:
+        html="""<html>       <head>
+            <style>
+"""+self.css+"""
+    </style>
+            <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+            <script>
+                let backend;
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    backend = channel.objects.backend;
+                });
+
+
+            function handleSelectImg(button, imageId) {
+                backend.handle_select_img(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+
+                /* update other rows */
+                const allRows = document.querySelectorAll('table tr');
+                allRows.forEach(row => {
+                    if (row !== tr && row.classList.contains('selected')) {
+                        row.classList.remove('selected');
+                        row.classList.add('visited');
+                    }
+                }); 
+            }
+
+            function handleSelectImgAppend(button, imageId) {
+                backend.handle_select_img_append(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+            }
+            
+            function handleSelectImgRangeBegin(button, imageId) {
+                backend.handle_select_img_range_begin(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+            }
+            function handleSelectImgRangeEnd(button, imageId) {
+                backend.handle_select_img_range_end(imageId);
+                /* mark selected row */
+                const tr = button.closest('tr');
+                tr.classList.remove('visited');
+                tr.classList.add('selected');
+            }
                 
-            # filtering 
-            if ('namegenerated' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
-                continue
-            if ('duplicate' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
-                continue
-            if ('nonpublic' in photo['tags'] and skip_if_namegenerated) and 'noname' not in photo['tags']:
-                continue                    
-            if self.filters_checkbox_has_dest.isChecked():
-                if photo['id'] not in self.dest_point_by_flickrid:
-                    continue
-            if self.filters_checkbox_no_dest.isChecked():
-                if photo['id'] in self.dest_point_by_flickrid:
-                    continue
+                function handleShowImageOnMap(button, imageId) {
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.remove('visited');
+                    tr.classList.add('selected');
+                    backend.handle_ShowImageOnMap(imageId);
+                    backend.handle_select_img(imageId);
+                }   
                 
-            if 'namegenerated' in photo['tags']:
-                photo['mark']=1
-            else:
-                photo['mark']=0
-            images_list_output.append(photo)
+                function handleMacros1(button, imageId) {
+                    backend.handleMacros1(imageId);
+                    /* mark selected row */
+                    const tr = button.closest('tr');
+                    tr.classList.add('selected');
+                }         
+                
+                function decelectImg(imageId) {
+                  const tr = document.getElementById(imageId);
+                  if (!tr) return;
+                  tr.classList.remove('selected');
+                  tr.classList.add('visited');
+                }
+            </script>
+        </head><body><table>"""
+        html+='<p style="font-face: monospace;">Get images from server: '+str(len(result_list))+'</p>'
+        html+='<p style="font-face: monospace;">Displayed images: '+str(files_to_display)+'</p>'
+        html+=trs
+        html+='</table>'
+
+        html+='</html>'
+        
+        with open("debug.htm", "w", encoding="utf-8") as f:
+            f.write(html)
+    
+        self.browser_main_table.setPage(ExternalLinkPage(self.browser_main_table))
+        self.browser_main_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self.browser_main_table.setHtml(html, QUrl("qrc:/"))
+        
+
+        self.web_channel = QWebChannel()
+        self.web_channel.registerObject("backend", self.backend)
+        self.browser_main_table.page().setWebChannel(self.web_channel)
+
+
+    def info_search_noresults(self):
+        QMessageBox.warning(self, "Not found", "Select photo return no results")
+    def gen_photo_row(self,photo,photo_context):
+        
+        pools_text = ''
+        if 'pool' in photo_context:
+            for pool in photo_context['pool']:
+                pools_text = pools_text +'⬛'
+        tr=''
+
+        image_url = f"https://live.staticflickr.com/{photo['server']}/{photo['id']}_{photo['secret']}_w.jpg"
+        image_url_o = f"{photo['url_o']}"
+        image_url_k = photo.get('url_k')
+        geo_text=''
+        if photo['latitude']==0: 
+            geo_text='🌍❌'
+        public_text = ''
+        if photo['ispublic'] == 0:
+            public_text = '🗄️'
+        if photo['id'] in self.dest_point_by_flickrid:
+            geo_text+="🔹👈"
+        geo_text = geo_text +'<br><div style="background-color:gray;">'+photo['views']+' '+pools_text+'</div>' 
+        photo_url = f"https://www.flickr.com/photos/{photo['owner']}/{photo['id']}/in/datetaken/"
+        info = f'''{photo['title']}{geo_text}{public_text}<br/><small>{photo['views']}</small> <small>{photo['tags']}</small><br/>{photo['datetaken']} <br/><a href="{photo_url}" tabindex="-1"> Open on Flickr</a><br/><a href="{image_url_o}" tabindex="-1">jpeg origin</a>'''
+        if image_url_k is not None: info += ''' <a href="{image_url_k}" tabindex="-1">K size</a>'''
+        info += ''' <a href="https://www.flickr.com/photos/organize/?ids='''+photo['id']+'''">Organizr</a></br>'''
+        geocodezoom=18
+        info += ''' <a href="https://ya.ru/images/search?rpt=imageview&url='''+photo['url_o']+'''">Yandex image query</a></br>'''
+        if photo['latitude']!=0:
+            info += f'''<br/><a href="https://yandex.ru/maps/?panorama[point]={photo['longitude']},{photo['latitude']}">Y pano</a> <a href="https://yandex.ru/maps/?whatshere[point]={photo['longitude']},{photo['latitude']}&whatshere[zoom]=19">Y Map</a> <br><a href="https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=en&lat={photo['latitude']}&lon={photo['longitude']}&zoom={geocodezoom}&addressdetails=1">Rev geocode</a>'''
+        
+        tr=f'''<tr id="{photo['id']}"><td><img src="{image_url}"></td><td>{info}<br/><button tabindex="-1" onclick="handleSelectImg(this,'{photo['id']}')">Select</button><button tabindex="-1" onclick="handleSelectImgAppend(this,'{photo['id']}')">Append to select</button> <button tabindex="-1" onclick="handleSelectImgRangeBegin(this,'{photo['id']}')">&lbrack;</button><button tabindex="-1" onclick="handleSelectImgRangeEnd(this,'{photo['id']}')">&rbrack;</button> <br/><button tabindex="-1" onclick="handleShowImageOnMap(this,'{photo['id']}')">Select and move map</button><button tabindex="-1" onclick="handleMacros1(this,'{photo['id']}')">Macros</button></td></tr>'''+"\n"
+        return tr
+
+    def openlayers_map_refresh(self,lat,lon):
+        openlayers_html = """
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OpenLayers Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  html, body, #map { margin:0; padding:0; height:100%; width:100%; }
+  .marker-label { background: rgba(255,255,255,0.8); padding:2px 4px; border-radius:3px; border:1px solid #666; }
+</style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@7.4.0/ol.css" />
+<script src="https://cdn.jsdelivr.net/npm/ol@7.4.0/dist/ol.js"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+
+</head>
+<body>
+<div id="map"></div>
+<script>
+let map, vectorSource, vectorLayer;
+let destFeature = null;
+
+function initMap() {
+    vectorSource = new ol.source.Vector();
+    vectorLayer = new ol.layer.Vector({ source: vectorSource });
+    map = new ol.Map({
+        target: 'map',
+        layers: [
+            new ol.layer.Tile({ source: new ol.source.OSM() }),
+            vectorLayer
+        ],
+        view: new ol.View({
+            center: ol.proj.fromLonLat([$lon, $lat]),
+            zoom: 18
+        })
+    });
+
+map.on('singleclick', function(evt) {
+    let coord = ol.proj.toLonLat(evt.coordinate);
+    if (evt.originalEvent && evt.originalEvent.shiftKey) {
+        placeDestination(coord[1], coord[0]);
+        if (window.pyObj && window.pyObj.shiftClicked) {
+            window.pyObj.shiftClicked(coord[1], coord[0]);
+        }
+    } else {
+        placeMarker(coord[1], coord[0], 'Image');
+        if (window.pyObj && window.pyObj.olimageClicked) {
+            window.pyObj.olimageClicked(coord[1], coord[0]);
+        }
+    }
+});
+}
+
+function clearMarkers() {
+    vectorSource.clear();
+    destFeature = null;
+}
+
+function placeMarker(lat, lon, label) {
+    clearMarkers();
+    let feature = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
+    });
+    feature.setStyle(new ol.style.Style({
+        image: new ol.style.Circle({ radius: 8, fill: new ol.style.Fill({color: '#ff0000'}), stroke: new ol.style.Stroke({color:'#fff', width:2}) }),
+        text: new ol.style.Text({ text: label || '', offsetY: -20, fill: new ol.style.Fill({color:'#000'}), backgroundFill: new ol.style.Fill({color:'rgba(255,255,255,0.8)'}) })
+    }));
+    vectorSource.addFeature(feature);
+    map.getView().animate({center: ol.proj.fromLonLat([lon, lat]), zoom: 18,duration:100});
+}
+
+function placeDestination(lat, lon) {
+    if (destFeature) {
+        vectorSource.removeFeature(destFeature);
+        destFeature = null;
+    }
+    destFeature = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat]))
+    });
+    destFeature.setStyle(new ol.style.Style({
+        image: new ol.style.Icon({ src: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28"><circle cx="14" cy="14" r="10" fill="%23007bff" stroke="%23fff" stroke-width="2"/></svg>' }),
+        text: new ol.style.Text({ text: 'Destination', offsetY: -20, fill: new ol.style.Fill({color:'#000'}) })
+    }));
+    vectorSource.addFeature(destFeature);
+}
+
+new QWebChannel(qt.webChannelTransport, function(channel) {
+    window.pyObj = channel.objects.pyObj;
+    window.pyObj.placeMarker.connect(function(lat, lon, label) {
+        placeMarker(lat, lon, label);
+    });
+    window.pyObj.clearMarkers.connect(function() {
+        clearMarkers();
+    });
+    window.pyObj.placeDestination.connect(function(lat, lon) {
+        placeDestination(lat, lon);
+    });
+});
+
+initMap();
+</script>
+</body>
+</html>
+"""
+        # ensure lat/lon are strings for replace
+        openlayers_html = openlayers_html.replace('$lat', str(lat)).replace('$lon', str(lon))
+
+        # create and attach web channel with the same object name used in JS ("pyObj")
+        self.web_channel_mappicker = QWebChannel()
+        self.web_channel_mappicker.registerObject("pyObj", self.backend)
+        self.mappicker.page().setWebChannel(self.web_channel_mappicker)
+        self.mappicker.setHtml(openlayers_html, QUrl("qrc:/"))
+
+        # Now emit the initial marker after the webchannel is set so JS can receive it
+        try:
+            self.backend.placeMarker.emit(float(lat), float(lon), 'text')
+        except Exception:
+            # don't crash UI if emit fails
+            pass
+
+        
+
+    def on_photo_select(self, photo_id):
+        
+        current_tab_index = self.formtab.currentIndex()
+        current_tab_name = self.formtab.tabText(current_tab_index)
+        
+        self.selecteds_list = list()
+        self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+
+
+        for img in self.flickrimgs: 
+            if img['id'] == photo_id:
+                if 'venue_int' in self.formwritefields[current_tab_name]:
+                    self.formwritefields[current_tab_name]['venue_int'].setText('')
+ 
+                                
+                lat = img.get('latitude')
+                lon = img.get('longitude')
+                self.wigets['coords'].setText(f"{lat},{lon}")
+                if photo_id in self.dest_point_by_flickrid:
+                    self.wigets['dest_coords'].setText(f"{self.dest_point_by_flickrid[photo_id][0]},{self.dest_point_by_flickrid[photo_id][1]}")
+                self.on_load_dest_coord()    
+                
+                    
+    def ShowImageOnMap(self, photo_id):
+        self.selecteds_list = list()
+        self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+        print('display update ok')
+
+        for img in self.flickrimgs: 
+            if img['id'] == photo_id:
+                print('image found ok')
+                #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
+                
+                lat = img.get('latitude')
+                lon = img.get('longitude')
+                if lat is not None and lon is not None:
+                    print('call openlayers refresh')
+                    try:
+                        self.openlayers_map_refresh(lat,lon)
+                    except:
+                        print('openlayers refresh failed, skip')
+                    print('openlayers refresh end')
+                #TODO: WRITE HERE
+                self.wigets['coords'].setText(f"{lat},{lon}")
+                
+                if lat is not None and lon is not None:
+                    # Emit signal to JS to place marker
+                    print('call placemarker')
+                    self.backend.placeMarker.emit(float(lat), float(lon), 'text')
+                else:
+                    # Clear markers
+                    self.backend.clearMarkers.emit()
+
+
+    def on_photo_select_append(self, photo_id):
+        if photo_id not in self.selecteds_list:
+            self.selecteds_list.append(photo_id)
+        self.selections_display_update()
+
+    def on_photo_select_range_begin(self, photo_id):
+
+        self.range_begin_id = photo_id
+        self.range_select()
+    def on_photo_select_range_end(self, photo_id):
+
+        self.range_end_id = photo_id
+        self.range_select()
+    def range_select(self):
+        inrange = None
+        self.selecteds_list = list()
+        if self.range_begin_id is not None and self.range_end_id is not None:
+            for img in self.flickrimgs:
+                if img['id'] == self.range_begin_id: 
+                    inrange=True
+                if img['id'] == self.range_end_id: 
+                    inrange=False
+                    
+                if inrange:
+                    self.selecteds_list.append(img['id'])
+                if img['id'] == self.range_end_id:    
+                    self.selecteds_list.append(img['id'])
+                    
+        self.selections_display_update()
+    def deselect_photos(self):
+        self.selecteds_list=list()
+        if len(self.selecteds_list)>0:
+
+            for flickrid in self.selecteds_list:
+            
+                js = f"decelectImg('{flickrid}');"
+                self.browser_main_table.page().runJavaScript(js)
+                
+        self.selections_display_update()
+    def invalidate_cache(self):
+        self.geocode_results = dict()
+
+    def selections_display_update(self):
+        if len(self.selecteds_list)>0:
+            self.selections_label.setText( '<a href="https://www.flickr.com/photos/organize/?ids='+ ','.join(self.selecteds_list)+'">'+ str(len(self.selecteds_list))+' image(s) '+'</a> ')
+            
+
+        else:
+            self.selections_label.setText('')
+    
+if __name__ == "__main__":
+    
+    
+
+    parser = argparse.ArgumentParser(description="Interface for make photo names of transport on flickr")
+    parser.add_argument("--tags", type=str, help="Comma-separated tags for search", required=False)
+    
+    parser.add_argument("--min_taken_date", type=str, help="Minimum taken date (YYYY-MM-DD HH:MM:SS format)", required='--max_taken_date' in sys.argv or '--interval' in sys.argv)
+    parser.add_argument("--max_taken_date", type=str, help="Maximum taken date (YYYY-MM-DD HH:MM:SS format)", required=False)
+    parser.add_argument("--days", type=str, help="days to search instead of max-taken-date", required=False)
+    parser.add_argument("--per_page", type=int, default=500, help="per page param for flickr search api", required=False)
+    parser.add_argument("--exclude", type=str, help="exclude these tags from search. separator is , ") 
+    parser.add_argument("--sources_path", help="path to directory with image sources with GPS Dest coordinates for geocoding")
+    
+
+
+    args = parser.parse_args()
+
+
+    app = QApplication(sys.argv)
+    window = FlickrBrowser(args)
+    window.showMaximized()
+    sys.exit(app.exec())

@@ -387,7 +387,9 @@ class FlickrBrowser(QMainWindow):
         
         #https://colorbrewer2.org/?type=qualitative&scheme=Paired&n=8
         
-        self.palette=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00']
+        self.palette_num=['#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00']
+        self.colors={'automatic':'#ff7f00','macros':'#fdbf6f','write':'#e31a1c'}
+
         
         self.css='''        body {
             background-color: #1a1a1a;
@@ -547,7 +549,7 @@ table {
         self.formlayouts['coords'].addWidget(self.wigets['coords-loadfromflickr'])
         
         self.wigets['set-dest-coord']=QPushButton("Set dest coord")
-        self.wigets['set-dest-coord'].setStyleSheet("background-color: "+self.palette[3])
+        self.wigets['set-dest-coord'].setStyleSheet("background-color: "+self.palette_num[3])
         self.wigets['set-dest-coord'].clicked.connect(self.set_dest_coord)
         shortcut_text=QKeySequence('Enter').toString()
         self.wigets['set-dest-coord'].setToolTip(f"Shortcut: {shortcut_text}")
@@ -556,38 +558,38 @@ table {
         self.shortcut_set_dest_coord.activated.connect(self.wigets['set-dest-coord'].click)
                 
         self.wigets['geocode-queue']=QPushButton("Process geocode queue")
-        self.wigets['geocode-queue'].setStyleSheet("background-color: "+self.palette[3])
+        self.wigets['geocode-queue'].setStyleSheet("background-color: "+self.palette_num[3])
         self.wigets['geocode-queue'].clicked.connect(self.process_geocode_queue)
         self.formlayouts['coords'].addWidget(self.wigets['geocode-queue'])
         
         self.wigets['remove-tags']=QPushButton("Remove tags on all displayed")
-        self.wigets['remove-tags'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['remove-tags'].setStyleSheet("background-color: "+self.palette_num[6])
         self.wigets['remove-tags'].clicked.connect(self.remove_tags)
         self.formlayouts['coords'].addWidget(self.wigets['remove-tags'])
         
         self.wigets['make-public-all']=QPushButton("Open to public on all displayed")
-        self.wigets['make-public-all'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['make-public-all'].setStyleSheet("background-color: "+self.palette_num[6])
         self.wigets['make-public-all'].clicked.connect(self.make_public_all)
         self.formlayouts['coords'].addWidget(self.wigets['make-public-all'])
         
         self.wigets['add-tags-all']=QPushButton("Add tag to all displayed")
-        self.wigets['add-tags-all'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['add-tags-all'].setStyleSheet("background-color: "+self.palette_num[6])
         self.wigets['add-tags-all'].clicked.connect(self.add_tags_all)
         self.formlayouts['coords'].addWidget(self.wigets['add-tags-all'])
 
         
         self.wigets['add-tags-selected']=QPushButton("Add tag to selected")
-        self.wigets['add-tags-selected'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['add-tags-selected'].setStyleSheet("background-color: "+self.palette_num[6])
         self.wigets['add-tags-selected'].clicked.connect(self.add_tags_selected)
         self.formlayouts['coords'].addWidget(self.wigets['add-tags-selected'])
         
         self.wigets['rename-selected']=QPushButton("Rename selected")
-        self.wigets['rename-selected'].setStyleSheet("background-color: "+self.palette[6])
+        self.wigets['rename-selected'].setStyleSheet("background-color: "+self.palette_num[6])
         self.wigets['rename-selected'].clicked.connect(self.rename_selected)
         self.formlayouts['coords'].addWidget(self.wigets['rename-selected'])
         
         self.wigets['reset-cache']=QPushButton("Res cache")
-        self.wigets['reset-cache'].setStyleSheet("background-color: "+self.palette[1])
+        self.wigets['reset-cache'].setStyleSheet("background-color: "+self.palette_num[1])
         self.wigets['reset-cache'].clicked.connect(self.invalidate_cache)
         self.formlayouts['coords'].addWidget(self.wigets['reset-cache'])        
 
@@ -678,17 +680,17 @@ table {
         self.formlayouts['footer_buttons'] = QHBoxLayout()
         
         self.geocoding_queue_add_btn = QPushButton("Add to geocoding queue")
-        self.geocoding_queue_add_btn.setStyleSheet("background-color: "+self.palette[3])
+        self.geocoding_queue_add_btn.setStyleSheet("background-color: "+self.colors['macros'])
         self.geocoding_queue_add_btn.clicked.connect(self.on_geocode_queue_add)
         self.formlayouts['footer_buttons'].addWidget(self.geocoding_queue_add_btn) 
         
         self.changeset_add_btn = QPushButton("Add to changeset")
-        self.changeset_add_btn.setStyleSheet("background-color: "+self.palette[7])
+        self.changeset_add_btn.setStyleSheet("background-color: "+self.colors['macros'])
         self.changeset_add_btn.clicked.connect(self.on_changeset_add)
         self.formlayouts['footer_buttons'].addWidget(self.changeset_add_btn)
         
         self.changeset_write_btn = QPushButton("Write changeset")
-        self.changeset_write_btn.setStyleSheet("background-color: "+self.palette[5])
+        self.changeset_write_btn.setStyleSheet("background-color: "+self.colors['write'])
         self.changeset_write_btn.clicked.connect(self.on_write_changeset)
         self.formlayouts['footer_buttons'].addWidget(self.changeset_write_btn)
         layout.addLayout(self.formlayouts['footer_buttons'])
@@ -934,14 +936,14 @@ table {
         tab = QWidget()
         form_layout = QFormLayout()
 
-        for label in ["preset","zoom","venue_int",'name_template','desc_template','tags_template','name','desc','tags', 'more_tags']:
+        for label in ["preset","zoom","venue_int",'name_template','desc_template','tags_template','city_loc','district_loc','road_loc','housenumber','name','desc','tags', 'more_tags']:
             line_edit = QLineEdit()
             self.formwritefields['address'][label] = line_edit
             form_layout.addRow(label.capitalize() + ":", line_edit)
             if label=='name':
                 self.geocode_rev_buttons['address']=QPushButton("⇪ Nominatim query ⇪")
                 self.geocode_rev_buttons['address'].clicked.connect(self.on_geocode_reverse_address)
-                self.geocode_rev_buttons['address'].setStyleSheet("background-color: "+self.palette[6])
+                self.geocode_rev_buttons['address'].setStyleSheet("background-color: "+self.palette_num[6])
                 form_layout.addRow(":", self.geocode_rev_buttons['address'])
                
             if label=='dest':
@@ -958,18 +960,18 @@ table {
                 
                 self.macros_buttons['nominatim-stage'] = QPushButton("Macros | nominatim-stage") 
                 self.macros_buttons['nominatim-stage'].clicked.connect(self.on_macros2)
-                self.macros_buttons['nominatim-stage'].setStyleSheet("background-color: "+self.palette[7])
+                self.macros_buttons['nominatim-stage'].setStyleSheet("background-color: "+self.palette_num[7])
                 form_layout.addRow(":", self.macros_buttons['nominatim-stage'])  
                              
                 self.macros_buttons['nominatim-stage-save'] = QPushButton("Macros | nominatim-stage-save") 
                 self.macros_buttons['nominatim-stage-save'].clicked.connect(self.on_macros3)
-                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[6])
+                self.macros_buttons['nominatim-stage-save'].setStyleSheet("background-color: "+self.palette_num[6])
                 form_layout.addRow(":", self.macros_buttons['nominatim-stage-save'])  
                 
                              
                 #self.macros_buttons['queue-nominatim-stage-save'] = QPushButton("Macros | queue-nominatim-stage-save") 
                 #self.macros_buttons['queue-nominatim-stage-save'].clicked.connect(self.on_macros3)
-                #self.macros_buttons['queue-nominatim-stage-save'].setStyleSheet("background-color: "+self.palette[5])
+                #self.macros_buttons['queue-nominatim-stage-save'].setStyleSheet("background-color: "+self.palette_num[5])
                 #form_layout.addRow(":", self.macros_buttons['queue-nominatim-stage-save'])  
                 
         self.formwritefields['address']['preset'].setText('address')   
@@ -983,8 +985,27 @@ table {
         nominatim_keys_list.setText(', '.join(self.nominatim_keys))
         form_layout.addRow('nominatim keys list: ',nominatim_keys_list)
         tab.setLayout(form_layout)
+        
+        #self.formwritefields['address']['city_loc'].textChanged.connect(self.on_address_part_typing)
+        
         return tab    
 
+    '''
+    def on_address_part_typing(self):
+        city_loc = self.formwritefields['address']['city_loc'].text()
+        district_loc = self.formwritefields['address']['district_loc'].text()
+        road_loc = self.formwritefields['address']['road_loc'].text()
+        housenumber_loc = self.formwritefields['address']['housenumber'].text()
+        
+        city_int = translit(city_loc,self.lang_loc, reversed=True)
+        district_int  = translit(district_loc,self.lang_loc, reversed=True)
+        road_int = translit(road_loc,self.lang_loc, reversed=True)
+        housenumber_int = translit(housenumber_loc,self.lang_loc, reversed=True)
+        
+        self.formwritefields['address']['name'] = f"{city_int} {district_int} {road_int} {housenumber_int}"
+        self.formwritefields['address']['desc'] = f"{city_loc} {district_loc} {road_loc} {housenumber_loc}"
+    ''' 
+        
     def create_street_tab(self):
         tab = QWidget()
         form_layout = QFormLayout()
@@ -1025,9 +1046,7 @@ table {
                 
         self.formwritefields['trainstation']['preset'].setText('trainstation')   
 
-        #self.formwritefields['trainstation']['name_template'].setText('{venue_int} {city_int} {road_int} {house_number_int}')
-        #self.formwritefields['trainstation']['desc_template'].setText('{venue_int} {city_loc} {road_loc} {house_number_loc}')
-        #self.formwritefields['trainstation']['tags_template'].setText('{city_int},{country_int},{suburb_int},{town_int},{village_int},{state_int},{neighbourhood_int},building')
+
         
         
         nominatim_keys_list = QLabel()
@@ -1078,6 +1097,7 @@ table {
     def on_changeset_add(self):
         current_tab_index = self.formtab.currentIndex()
         current_tab_name = self.formtab.tabText(current_tab_index)
+
 
         textsdict = {field: widget.text() for field, widget in self.formwritefields[current_tab_name].items()}
         flickrid=''
@@ -1138,7 +1158,7 @@ table {
                     if img['id'] == flickrid:                      
                         import re
 
-                        regex = r"-(?:r|м)(\d+)(?:-[^.]+)?$"
+                        regex = r"[_-](?:r|м)(\d+)(?:-[^.]+)?$"
                         test_str = img['title']
                         route=''
 
@@ -1454,6 +1474,11 @@ table {
                         txt = re.sub(',+', ',', txt) #merge multiple , to single ,
                         self.formwritefields[current_tab_name]['tags'].setText(txt)
                         
+                        # trying userflow 2: 3 fields
+                        self.formwritefields[current_tab_name]['city_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('city',''))
+                        self.formwritefields[current_tab_name]['district_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('suburb',''))
+                        self.formwritefields[current_tab_name]['road_loc'].setText(geocoderesults['loc'].raw.get('address',{}).get('road',''))
+                        self.formwritefields[current_tab_name]['housenumber'].setText(geocoderesults['loc'].raw.get('address',{}).get('housenumber',''))
         
     def on_geocode_reverse_street(self):
         current_tab_index = self.formtab.currentIndex()
@@ -1921,20 +1946,28 @@ initMap();
         self.selecteds_list = list()
         self.selecteds_list.append(photo_id)
         self.selections_display_update()
+        print('display update ok')
 
         for img in self.flickrimgs: 
             if img['id'] == photo_id:
+                print('image found ok')
                 #self.formwritefields[current_tab_name]['dest_coordinates'].setText(f"{img['latitude']},{img['longitude']}")
                 
                 lat = img.get('latitude')
                 lon = img.get('longitude')
                 if lat is not None and lon is not None:
-                    self.openlayers_map_refresh(lat,lon)
+                    print('call openlayers refresh')
+                    try:
+                        self.openlayers_map_refresh(lat,lon)
+                    except:
+                        print('openlayers refresh failed, skip')
+                    print('openlayers refresh end')
                 #TODO: WRITE HERE
                 self.wigets['coords'].setText(f"{lat},{lon}")
                 
                 if lat is not None and lon is not None:
                     # Emit signal to JS to place marker
+                    print('call placemarker')
                     self.backend.placeMarker.emit(float(lat), float(lon), 'text')
                 else:
                     # Clear markers
